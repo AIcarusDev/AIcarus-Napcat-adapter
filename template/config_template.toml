@@ -9,7 +9,7 @@ port = 8078      # Adapter 监听来自 Napcat 客户端连接的端口。
 
 [core_connection]
 url = "ws://127.0.0.1:8077/ws"  # 你的 AIcarus Core WebSocket 服务器的完整 URL。请确保 Core 服务器已启动并监听此地址。
-platform_id = "napcat_qq_bot_instance_1" # 此 Adapter 实例在 Core 处注册的唯一标识符。用于 Core 区分不同的 Adapter 连接。
+platform_id = "napcat_qq" # 此 Adapter 实例在 Core 处注册的唯一标识符。用于 Core 区分不同的 Adapter 连接。一般无需更改
 
 [bot_settings]
 nickname = "" # 可选：机器人的昵称。如果不需要，请将其值保留为空字符串 "" 或直接删除此行。
