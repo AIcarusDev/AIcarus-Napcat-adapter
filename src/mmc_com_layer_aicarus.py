@@ -84,18 +84,35 @@ class CoreConnectionClient:
             logger.info(f"已成功连接到 Core WebSocket 服务器: {self.core_ws_url}")
             # 可以在连接成功后发送一个初始的注册/心跳消息 (如果协议需要)
             # 例如，发送一个 meta:lifecycle connect 事件
-            from aicarus_protocols import MessageBase, BaseMessageInfo, Seg # 避免循环导入
+            from aicarus_protocols import (
+                MessageBase,
+                BaseMessageInfo,
+                Seg,
+            )  # 避免循环导入
+
             connect_meta = MessageBase(
                 message_info=BaseMessageInfo(
-                    platform=self.platform_id, # 用 Adapter 的 ID
-                    bot_id=self.platform_id, # Adapter 自身标识, 修改为 platform_id
+                    platform=self.platform_id,  # 用 Adapter 的 ID
+                    bot_id=self.platform_id,  # Adapter 自身标识, 修改为 platform_id
                     interaction_purpose="platform_meta",
                     time=time.time() * 1000,
-                    additional_config={"protocol_version": "1.2.0"} # 使用你的协议版本
+                    additional_config={"protocol_version": "1.2.0"},  # 使用你的协议版本
                 ),
-                message_segment=Seg(type="seglist", data=[
-                    Seg(type="meta:lifecycle", data={"lifecycle_type": "connect", "details": {"adapter_platform": "napcat", "adapter_version": "0.1.0"}})
-                ])
+                message_segment=Seg(
+                    type="seglist",
+                    data=[
+                        Seg(
+                            type="meta:lifecycle",
+                            data={
+                                "lifecycle_type": "connect",
+                                "details": {
+                                    "adapter_platform": "napcat",
+                                    "adapter_version": "0.1.0",
+                                },
+                            },
+                        )
+                    ],
+                ),
             )
             await self.send_message_to_core(connect_meta.to_dict())
             logger.info("已向 Core 发送 platform_meta (lifecycle connect) 消息。")

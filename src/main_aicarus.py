@@ -24,7 +24,7 @@ from .message_queue import (
 
 
 async def napcat_message_receiver(
-    server_connection: websockets.WebSocketServerProtocol
+    server_connection: websockets.WebSocketServerProtocol,
 ):
     """处理来自 Napcat 的连接和消息"""
     logger.info(f"Napcat 客户端已连接: {server_connection.remote_address}")

@@ -2,7 +2,6 @@
 import time
 import asyncio
 import json
-import websockets as Server  # type: ignore
 from typing import List, Optional, Dict, Any
 import uuid
 import websockets  # 添加导入
@@ -18,7 +17,7 @@ from .utils import (
     napcat_get_member_info,
     napcat_get_self_info,
     napcat_get_forward_msg_content,  # 如果用到了
-    )
+)
 from .napcat_definitions import (
     MetaEventType,
     MessageType,
@@ -304,7 +303,7 @@ class RecvHandlerAicarus:
         self, napcat_message_array: list, full_napcat_event: dict
     ) -> List[AicarusSeg]:
         aicarus_segments: List[AicarusSeg] = []
-        bot_id = (
+        _bot_id = (
             str(full_napcat_event.get("self_id"))
             or await self._get_bot_id()
             or "unknown_bot"
