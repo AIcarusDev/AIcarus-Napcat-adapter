@@ -621,7 +621,9 @@ class RecvHandlerAicarus:
                     return obj
 
                 serialized_message = serialize_nested(message_base.to_dict())
-                logger.debug(f"Dispatching serialized message to Core: {serialized_message}")
+                logger.debug(
+                    f"Dispatching serialized message to Core: {serialized_message}"
+                )
 
                 await self.maibot_router.send_message_to_core(serialized_message)
                 logger.debug(
@@ -652,7 +654,9 @@ class RecvHandlerAicarus:
 
             aicarus_user_info = await self._napcat_to_aicarus_userinfo(
                 napcat_event.get("sender", {}),
-                group_id=str(napcat_event.get("group_id")) if napcat_message_type == "group" else None
+                group_id=str(napcat_event.get("group_id"))
+                if napcat_message_type == "group"
+                else None,
             )
 
             aicarus_group_info = None
@@ -672,7 +676,9 @@ class RecvHandlerAicarus:
                 interaction_purpose="message_sent",
                 message_type=napcat_message_type,
                 sub_type=napcat_event.get("sub_type"),
-                font=str(napcat_event.get("font")) if napcat_event.get("font") is not None else None,
+                font=str(napcat_event.get("font"))
+                if napcat_event.get("font") is not None
+                else None,
                 additional_config={"protocol_version": AICARUS_PROTOCOL_VERSION},
             )
 
@@ -693,7 +699,9 @@ class RecvHandlerAicarus:
             await self.dispatch_to_core(aicarus_message)
 
         else:
-            logger.warning(f"AIcarus Adapter: Unknown Napcat data structure: {napcat_event}")
+            logger.warning(
+                f"AIcarus Adapter: Unknown Napcat data structure: {napcat_event}"
+            )
 
 
 recv_handler_aicarus = RecvHandlerAicarus()

@@ -68,7 +68,9 @@ async def napcat_message_receiver(
             elif napcat_event.get("echo"):
                 await put_napcat_api_response(napcat_event)  # 处理 Napcat API 响应
             elif post_type == "message_sent":
-                logger.debug(f"AIcarus Adapter: Processing message_sent event: {napcat_event}")
+                logger.debug(
+                    f"AIcarus Adapter: Processing message_sent event: {napcat_event}"
+                )
 
                 # 提取必要信息
                 bot_id = str(napcat_event.get("self_id"))
