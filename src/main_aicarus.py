@@ -2,6 +2,8 @@
 import asyncio
 import sys
 import json
+import time
+import uuid
 import websockets  # 确保导入
 
 # 项目内部模块
@@ -20,6 +22,13 @@ from .message_queue import (
     internal_event_queue,
     put_napcat_api_response,
     check_stale_api_responses_periodically,
+)
+from aicarus_protocols.base import (
+    BaseMessageInfo,
+    GroupInfo,
+    UserInfo,
+    Seg,
+    MessageBase,
 )
 
 
@@ -58,6 +67,42 @@ async def napcat_message_receiver(
                 await internal_event_queue.put(napcat_event)  # 将事件放入内部队列
             elif napcat_event.get("echo"):
                 await put_napcat_api_response(napcat_event)  # 处理 Napcat API 响应
+            elif post_type == "message_sent":
+                logger.debug(f"AIcarus Adapter: Processing message_sent event: {napcat_event}")
+
+                # 提取必要信息
+                bot_id = str(napcat_event.get("self_id"))
+                group_id = str(napcat_event.get("group_id"))
+                user_id = str(napcat_event.get("user_id"))
+
+                # 构造 AIcarus 消息信息
+                aicarus_message_info = BaseMessageInfo(
+                    platform="napcat_qq",
+                    bot_id=bot_id,
+                    interaction_purpose="platform_notification",
+                    time=napcat_event.get("time", time.time()) * 1000.0,
+                    message_id=f"message_sent_{uuid.uuid4()}",
+                    group_info=GroupInfo(platform="napcat_qq", group_id=group_id),
+                    user_info=UserInfo(platform="napcat_qq", user_id=user_id),
+                    additional_config={"protocol_version": "1.2.0"},
+                )
+
+                # 构造消息段
+                aicarus_seg = Seg(
+                    type="notification:message_sent",
+                    data={
+                        "raw_message": napcat_event.get("raw_message"),
+                        "message_content": napcat_event.get("message"),
+                    },
+                )
+
+                # 构造完整消息并发送到 Core
+                aicarus_message = MessageBase(
+                    message_info=aicarus_message_info,
+                    message_segment=Seg(type="seglist", data=[aicarus_seg]),
+                    raw_message=json.dumps(napcat_event),
+                )
+                await recv_handler_aicarus.dispatch_to_core(aicarus_message)
             else:
                 logger.warning(
                     f"AIcarus Adapter: Unknown Napcat data structure: {napcat_event}"
@@ -167,7 +212,7 @@ async def run_adapter():
             napcat_listener_server.wait_closed(),  # 等待 Napcat 监听服务器关闭
             napcat_processor_task,  # 等待事件处理任务
             stale_response_checker_task,  # 等待超时响应检查任务
-            # mmc_start_com() 内部的 run_forever 也是一个循环，它会通过 core_router 实例保持
+            # mmc_start_com() 内部的 run_forever 也是一个循环，它会通过 core_router 实实例保持
         )
     except asyncio.CancelledError:
         logger.info("Adapter 主运行任务被取消。")

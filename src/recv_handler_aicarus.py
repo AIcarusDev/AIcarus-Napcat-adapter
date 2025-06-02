@@ -610,9 +610,20 @@ class RecvHandlerAicarus:
     async def dispatch_to_core(self, message_base: AicarusMessageBase):
         if self.maibot_router:
             try:
-                await self.maibot_router.send_message_to_core(
-                    message_base.to_dict()
-                )  # 确保调用 send_message_to_core
+                # 确保嵌套对象被正确序列化为字典
+                def serialize_nested(obj):
+                    if isinstance(obj, dict):
+                        return {k: serialize_nested(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [serialize_nested(i) for i in obj]
+                    elif hasattr(obj, "to_dict"):
+                        return obj.to_dict()
+                    return obj
+
+                serialized_message = serialize_nested(message_base.to_dict())
+                logger.debug(f"Dispatching serialized message to Core: {serialized_message}")
+
+                await self.maibot_router.send_message_to_core(serialized_message)
                 logger.debug(
                     f"AIcarus Adapter: Dispatched message to Core: {message_base.message_info.interaction_purpose} / {message_base.message_segment.data[0].type if message_base.message_segment.data else 'empty_seglist'}"
                 )
@@ -625,6 +636,64 @@ class RecvHandlerAicarus:
             logger.error(
                 "AIcarus Adapter: Maibot router (CoreConnectionClient) not available. Cannot send message to Core."
             )
+
+    async def napcat_message_receiver(self, napcat_event: dict) -> None:
+        post_type = napcat_event.get("post_type")
+
+        if post_type == "message_sent":
+            # 处理 message_sent 类型事件
+            bot_id = (
+                str(napcat_event.get("self_id"))
+                or await self._get_bot_id()
+                or "unknown_bot"
+            )
+            napcat_message_type = napcat_event.get("message_type")
+            napcat_message_id = str(napcat_event.get("message_id", ""))
+
+            aicarus_user_info = await self._napcat_to_aicarus_userinfo(
+                napcat_event.get("sender", {}),
+                group_id=str(napcat_event.get("group_id")) if napcat_message_type == "group" else None
+            )
+
+            aicarus_group_info = None
+            if napcat_message_type == "group":
+                aicarus_group_info = await self._napcat_to_aicarus_groupinfo(
+                    str(napcat_event.get("group_id"))
+                )
+
+            cfg = global_config
+            aicarus_base_info = AicarusBaseMessageInfo(
+                platform=cfg.core_platform_id,
+                bot_id=bot_id,
+                message_id=napcat_message_id,
+                time=napcat_event.get("time", time.time()) * 1000.0,
+                group_info=aicarus_group_info,
+                user_info=aicarus_user_info,
+                interaction_purpose="message_sent",
+                message_type=napcat_message_type,
+                sub_type=napcat_event.get("sub_type"),
+                font=str(napcat_event.get("font")) if napcat_event.get("font") is not None else None,
+                additional_config={"protocol_version": AICARUS_PROTOCOL_VERSION},
+            )
+
+            aicarus_seg_list = await self._napcat_to_aicarus_seglist(
+                napcat_event.get("message", []), napcat_event
+            )
+            if not aicarus_seg_list:
+                logger.warning(
+                    f"AIcarus Adapter: Message {napcat_message_id} content is empty or unparseable, skipping."
+                )
+                return
+
+            aicarus_message = AicarusMessageBase(
+                message_info=aicarus_base_info,
+                message_segment=AicarusSeg(type="seglist", data=aicarus_seg_list),
+                raw_message=napcat_event.get("raw_message") or json.dumps(napcat_event),
+            )
+            await self.dispatch_to_core(aicarus_message)
+
+        else:
+            logger.warning(f"AIcarus Adapter: Unknown Napcat data structure: {napcat_event}")
 
 
 recv_handler_aicarus = RecvHandlerAicarus()
