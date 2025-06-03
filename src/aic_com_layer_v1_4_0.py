@@ -77,39 +77,31 @@ class CoreConnectionClient:
             logger.info(
                 f"正在尝试连接到 Core WebSocket 服务器: {self.core_ws_url} (Platform ID: {self.platform_id})"
             )
-            # 可以在连接时发送一个初始的 "hello" 或身份验证消息 (如果 Core 需要)
-            # 例如，通过 extra_headers 参数
-            # headers = {"X-Platform-ID": self.platform_id}
-            # self.websocket = await websockets.connect(self.core_ws_url, extra_headers=headers)
-            self.websocket = await websockets.connect(self.core_ws_url)  # 简单连接
+            self.websocket = await websockets.connect(self.core_ws_url)
             logger.info(f"已成功连接到 Core WebSocket 服务器: {self.core_ws_url}")
-            # 可以在连接成功后发送一个初始的注册/心跳消息 (如果协议需要)
-            # 例如，发送一个 meta.lifecycle.connect 事件
-            from aicarus_protocols import (
-                Event,
-                SegBuilder,
-                EventBuilder,
-                PROTOCOL_VERSION,
-            )  # 避免循环导入
+            
+            # 发送连接事件，使用正确的 Seg 构造
+            from aicarus_protocols import Event, Seg, PROTOCOL_VERSION
             import uuid
+            import json
 
             connect_event = Event(
                 event_id=f"meta_connect_{uuid.uuid4()}",
                 event_type="meta.lifecycle.connect",
                 time=time.time() * 1000,
-                platform=self.platform_id,  # 用 Adapter 的 ID
-                bot_id=self.platform_id,  # Adapter 自身标识, 修改为 platform_id
+                platform=self.platform_id,
+                bot_id=self.platform_id,
                 user_info=None,
                 conversation_info=None,
                 content=[
-                    SegBuilder.lifecycle(
-                        lifecycle_type="connect",
-                        details={
+                    Seg(type="meta.lifecycle", data={
+                        "lifecycle_type": "connect",
+                        "details": {
                             "adapter_platform": "napcat",
                             "adapter_version": "0.1.0",
                             "protocol_version": PROTOCOL_VERSION,
                         },
-                    )
+                    })
                 ],
                 raw_data=json.dumps({
                     "source": "adapter_connection",
@@ -127,7 +119,7 @@ class CoreConnectionClient:
             logger.error(
                 f"连接 Core 失败 ({self.core_ws_url}): 连接被拒绝。请确保 Core 服务器正在运行并监听正确地址。"
             )
-        except WebSocketException as e:  # 更通用的 WebSocket 异常
+        except WebSocketException as e:
             logger.error(
                 f"连接 Core ({self.core_ws_url}) 时发生 WebSocket 异常: {e}",
                 exc_info=True,
@@ -137,7 +129,7 @@ class CoreConnectionClient:
                 f"连接 Core ({self.core_ws_url}) 时发生未知错误: {e}", exc_info=True
             )
 
-        self.websocket = None  # 连接失败，重置 websocket 实例
+        self.websocket = None
         return False
 
     async def _receive_loop(self) -> None:

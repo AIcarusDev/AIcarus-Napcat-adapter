@@ -253,9 +253,9 @@ class RecvHandlerAicarus:
         if napcat_message_type == MessageType.private:
             aicarus_user_info = await self._napcat_to_aicarus_userinfo(napcat_sender)
             if napcat_sub_type == MessageType.Private.friend:
-                event_type = EventType.MESSAGE_PRIVATE_FRIEND
+                event_type = "message.private.friend"  # 使用字符串
             elif napcat_sub_type == MessageType.Private.group:
-                event_type = EventType.MESSAGE_PRIVATE_TEMPORARY
+                event_type = "message.private.temporary"  # 使用字符串
                 # 对于群临时会话，创建群会话信息
                 temp_group_id = str(napcat_event.get("group_id")) or str(
                     napcat_sender.get("group_id", "")
@@ -279,9 +279,9 @@ class RecvHandlerAicarus:
             aicarus_conversation_info = await self._napcat_to_aicarus_conversationinfo(group_id)
             
             if napcat_sub_type == MessageType.Group.normal:
-                event_type = EventType.MESSAGE_GROUP_NORMAL
+                event_type = "message.group.normal"  # 使用字符串
             elif napcat_sub_type == MessageType.Group.anonymous:
-                event_type = EventType.MESSAGE_GROUP_ANONYMOUS
+                event_type = "message.group.anonymous"  # 使用字符串
             else:
                 event_type = "message.group.other"
         else:
@@ -293,10 +293,13 @@ class RecvHandlerAicarus:
         # 构建消息内容
         content_segs = []
         
-        # 添加消息元数据
-        metadata_seg = SegBuilder.message_metadata(
-            message_id=napcat_message_id,
-            font=str(napcat_event.get("font")) if napcat_event.get("font") is not None else None
+        # 添加消息元数据 - 修复 SegBuilder 使用
+        metadata_seg = Seg(
+            type="message.metadata",
+            data={
+                "message_id": napcat_message_id,
+                "font": str(napcat_event.get("font")) if napcat_event.get("font") is not None else None
+            }
         )
         if napcat_sub_type == MessageType.Group.anonymous and napcat_event.get("anonymous"):
             metadata_seg.data["anonymity_info"] = napcat_event.get("anonymous")
@@ -342,7 +345,7 @@ class RecvHandlerAicarus:
             aicarus_s: Optional[Seg] = None
 
             if seg_type == NapcatSegType.text:
-                aicarus_s = SegBuilder.text(seg_data.get("text", ""))
+                aicarus_s = Seg(type="text", data={"text": seg_data.get("text", "")})
                 
             elif seg_type == NapcatSegType.face:
                 face_id = seg_data.get("id")
@@ -353,11 +356,14 @@ class RecvHandlerAicarus:
                 )
                 
             elif seg_type == NapcatSegType.image:
-                aicarus_s = SegBuilder.image(
-                    url=seg_data.get("url"),
-                    file_id=seg_data.get("file"),
-                    file_size=seg_data.get("file_size"),
-                    file_unique=seg_data.get("file_unique")
+                aicarus_s = Seg(
+                    type="image",
+                    data={
+                        "url": seg_data.get("url"),
+                        "file_id": seg_data.get("file"),
+                        "file_size": seg_data.get("file_size"),
+                        "file_unique": seg_data.get("file_unique")
+                    }
                 )
                 
             elif seg_type == NapcatSegType.at:
@@ -368,13 +374,16 @@ class RecvHandlerAicarus:
                 elif qq_num == "all":
                     display_name = "@全体成员"
                     
-                aicarus_s = SegBuilder.at(
-                    user_id=str(qq_num) if qq_num else "",
-                    display_name=display_name
+                aicarus_s = Seg(
+                    type="at",
+                    data={
+                        "user_id": str(qq_num) if qq_num else "",
+                        "display_name": display_name
+                    }
                 )
                 
             elif seg_type == NapcatSegType.reply:
-                aicarus_s = SegBuilder.reply(seg_data.get("id", ""))
+                aicarus_s = Seg(type="reply", data={"message_id": seg_data.get("id", "")})
                 
             elif seg_type == NapcatSegType.record:
                 aicarus_s = Seg(
