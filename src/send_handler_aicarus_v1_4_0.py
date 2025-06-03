@@ -1,7 +1,8 @@
-# aicarus_napcat_adapter/src/send_handler_aicarus.py
+# AIcarus Napcat Adapter - Send Handler for Protocol v1.4.0
+# aicarus_napcat_adapter/src/send_handler_aicarus_v1_4_0.py
 import asyncio
 import json
-import websockets  # 添加导入
+import websockets
 import uuid
 from typing import List, Dict, Any, Optional
 
@@ -11,16 +12,24 @@ from .logger import logger
 # 修正：从 .message_queue 导入 get_napcat_api_response
 from .message_queue import get_napcat_api_response
 
-# AIcarus 协议库
-from aicarus_protocols import MessageBase, Seg  # 确保你从你的协议库导入这些
-from .napcat_definitions import NapcatSegType  # Napcat 消息段类型定义
+# AIcarus 协议库 v1.4.0
+from aicarus_protocols import (
+    Event,
+    Seg,
+    SegBuilder,
+    EventBuilder,
+    EventType,
+    ConversationType,
+    PROTOCOL_VERSION,
+)
+from .napcat_definitions_v1_4_0 import NapcatSegType  # Napcat 消息段类型定义
 
 
 class SendHandlerAicarus:
     server_connection: Optional[websockets.WebSocketServerProtocol] = None
 
-    async def handle_aicarus_action(self, raw_aicarus_message_dict: dict) -> None:
-        """处理从 Core 收到的 AIcarus MessageBase (应为 core_action)"""
+    async def handle_aicarus_action(self, raw_aicarus_event_dict: dict) -> None:
+        """处理从 Core 收到的 AIcarus Event (应为 action 类型)"""
         if not self.server_connection:
             logger.error(
                 "AIcarus Adapter Send: Napcat server_connection is not available."
@@ -28,48 +37,44 @@ class SendHandlerAicarus:
             return
 
         try:
-            aicarus_message = MessageBase.from_dict(raw_aicarus_message_dict)
+            aicarus_event = Event.from_dict(raw_aicarus_event_dict)
         except Exception as e:
             logger.error(
-                f"AIcarus Adapter Send: Failed to parse MessageBase from dict: {e}"
+                f"AIcarus Adapter Send: Failed to parse Event from dict: {e}"
             )
-            logger.error(f"Received dict: {raw_aicarus_message_dict}")
+            logger.error(f"Received dict: {raw_aicarus_event_dict}")
             return
 
-        if aicarus_message.message_info.interaction_purpose != "core_action":
+        # 检查是否为 action 事件
+        if not aicarus_event.event_type.startswith("action."):
             logger.warning(
-                f"AIcarus Adapter Send: Received non-core_action message, ignoring. Purpose: {aicarus_message.message_info.interaction_purpose}"
+                f"AIcarus Adapter Send: Received non-action event, ignoring. Event type: {aicarus_event.event_type}"
             )
             return
 
         logger.info(
-            f"AIcarus Adapter Send: Received core_action from Core. Message ID: {aicarus_message.message_info.message_id}"
+            f"AIcarus Adapter Send: Received action event from Core. Event ID: {aicarus_event.event_id}, Type: {aicarus_event.event_type}"
         )
         logger.debug(
-            f"AIcarus Adapter Send: Full action message: {aicarus_message.to_dict()}"
+            f"AIcarus Adapter Send: Full action event: {aicarus_event.to_dict()}"
         )
 
-        if not (
-            aicarus_message.message_segment
-            and aicarus_message.message_segment.type == "seglist"
-            and isinstance(aicarus_message.message_segment.data, list)
-        ):
+        if not aicarus_event.content or not isinstance(aicarus_event.content, list):
             logger.error(
-                "AIcarus Adapter Send: Invalid core_action format. message_segment should be a seglist of actions."
+                "AIcarus Adapter Send: Invalid action event format. content should be a list of Seg objects."
             )
             return
 
         action_results: List[Dict[str, Any]] = []  # 用于未来可能的 action_response
 
-        for action_seg_obj in aicarus_message.message_segment.data:
-            action_seg_dict = (
-                action_seg_obj
-                if isinstance(action_seg_obj, dict)
-                else action_seg_obj.to_dict()
-            )
+        for content_seg in aicarus_event.content:
+            if isinstance(content_seg, dict):
+                action_seg = Seg.from_dict(content_seg)
+            else:
+                action_seg = content_seg
 
-            action_type = action_seg_dict.get("type", "")
-            action_data = action_seg_dict.get("data", {})
+            action_type = action_seg.type
+            action_data = action_seg.data
 
             logger.info(
                 f"AIcarus Adapter Send: Processing action seg: type='{action_type}', data='{action_data}'"
@@ -81,32 +86,23 @@ class SendHandlerAicarus:
             error_message = ""
 
             try:
-                if action_type == "action:send_message":
+                if action_type == "send_message":
                     target_user_id = action_data.get("target_user_id")
                     target_group_id = action_data.get("target_group_id")
 
-                    # 如果 action_data 中没有明确指定，则尝试从 message_info 的上下文中获取
+                    # 如果 action_data 中没有明确指定，则尝试从事件上下文中获取
                     if not target_user_id and not target_group_id:
                         logger.debug(
-                            "action:send_message did not have explicit target, using context from message_info"
+                            "send_message action did not have explicit target, using context from event"
                         )
-                        if (
-                            aicarus_message.message_info.user_info
-                            and aicarus_message.message_info.user_info.user_id
-                        ):
-                            target_user_id = (
-                                aicarus_message.message_info.user_info.user_id
-                            )
-                        if (
-                            aicarus_message.message_info.group_info
-                            and aicarus_message.message_info.group_info.group_id
-                        ):
-                            target_group_id = (
-                                aicarus_message.message_info.group_info.group_id
-                            )
-                            # 如果有群目标，通常私聊目标会被忽略或不适用
-                            if target_group_id:
-                                target_user_id = None
+                        if aicarus_event.user_info and aicarus_event.user_info.user_id:
+                            target_user_id = aicarus_event.user_info.user_id
+                        if aicarus_event.conversation_info and aicarus_event.conversation_info.conversation_id:
+                            if aicarus_event.conversation_info.type == ConversationType.GROUP:
+                                target_group_id = aicarus_event.conversation_info.conversation_id
+                                # 如果有群目标，通常私聊目标会被忽略或不适用
+                                if target_group_id:
+                                    target_user_id = None
 
                     napcat_segments_to_send = (
                         await self._aicarus_seglist_to_napcat_array(
@@ -116,7 +112,7 @@ class SendHandlerAicarus:
 
                     if not napcat_segments_to_send:
                         logger.warning(
-                            "AIcarus Adapter Send: No segments to send for action:send_message."
+                            "AIcarus Adapter Send: No segments to send for send_message action."
                         )
                         error_message = "No valid segments to send."
                     elif target_group_id:
@@ -125,6 +121,7 @@ class SendHandlerAicarus:
                             "group_id": int(target_group_id),  # Napcat 通常需要 int
                             "message": napcat_segments_to_send,
                         }
+
                         # 处理回复 (如果 action_data 中有 reply_to_message_id)
                         if action_data.get("reply_to_message_id"):
                             # Napcat 的回复段通常放在消息数组的开头
@@ -193,11 +190,11 @@ class SendHandlerAicarus:
                             )
                     else:
                         logger.error(
-                            "AIcarus Adapter Send: action:send_message missing target_user_id or target_group_id even after checking context."
+                            "AIcarus Adapter Send: send_message missing target_user_id or target_group_id even after checking context."
                         )
                         error_message = "Missing target_user_id or target_group_id."
 
-                elif action_type == "action:delete_message":
+                elif action_type == "delete_message":
                     target_message_id = str(action_data.get("target_message_id", ""))
                     if target_message_id:
                         # Napcat 的 message_id 通常是整数
@@ -214,8 +211,7 @@ class SendHandlerAicarus:
                     else:
                         error_message = "Missing target_message_id for delete_message."
 
-                # 修改这里的 action_type 判断
-                elif action_type == "action:send_poke":
+                elif action_type == "send_poke":
                     target_uid_str = action_data.get("target_user_id")
                     target_gid_str = action_data.get("target_group_id")  # May be None
 
@@ -242,7 +238,7 @@ class SendHandlerAicarus:
                         error_message = "Missing target_user_id for send_poke."
                         logger.warning(f"AIcarus Adapter Send: {error_message}")
 
-                elif action_type == "action:handle_friend_request":
+                elif action_type == "handle_friend_request":
                     request_flag = str(action_data.get("request_flag", ""))
                     approve = bool(action_data.get("approve", False))
                     remark = action_data.get("remark")  # Optional
@@ -269,7 +265,7 @@ class SendHandlerAicarus:
                             "Missing request_flag for handle_friend_request."
                         )
 
-                elif action_type == "action:handle_group_request":
+                elif action_type == "handle_group_request":
                     request_flag = str(action_data.get("request_flag", ""))
                     # Napcat's API uses 'sub_type' for 'add' or 'invite'
                     # 'request_type' from Aicarus protocol needs to be mapped.
@@ -357,51 +353,35 @@ class SendHandlerAicarus:
             )
 
         # TODO: Optional: Send action_response back to Core
-        # This would involve constructing a new AicarusMessageBase with interaction_purpose="action_response"
-        # and message_segment containing Seg(type="action_result:[status]", data=...) for each result.
+        # This would involve constructing a new Event with event_type="action_response.adapter.napcat"
+        # and content containing Seg(type="action_result", data=...) for each result.
         # For now, we are just logging the results in the adapter.
 
     async def _aicarus_seglist_to_napcat_array(
         self,
         aicarus_segments: List[Any],  # Segments can be dicts or Seg objects
     ) -> List[Dict[str, Any]]:
-        napcat_array: List[Dict[str, Any]] = []
-        if not isinstance(aicarus_segments, list):
-            logger.warning(
-                f"AIcarus Adapter Send: Expected list of segments, got {type(aicarus_segments)}"
+        """将 AIcarus 的 Seg 列表转换为 Napcat 消息段数组"""
+        napcat_message_array: List[Dict[str, Any]] = []
+
+        for aicarus_seg_obj in aicarus_segments:
+            aicarus_seg_dict = (
+                aicarus_seg_obj
+                if isinstance(aicarus_seg_obj, dict)
+                else aicarus_seg_obj.to_dict()
             )
-            return napcat_array
 
-        for aicarus_s_any in aicarus_segments:
-            # Ensure aicarus_s is a dictionary
-            if isinstance(aicarus_s_any, Seg):
-                aicarus_s = aicarus_s_any.to_dict()
-            elif isinstance(aicarus_s_any, dict):
-                aicarus_s = aicarus_s_any
-            else:
-                logger.warning(
-                    f"AIcarus Adapter Send: Segment is not a dict or Seg object: {type(aicarus_s_any)}"
-                )
-                continue  # Skip this segment
+            aicarus_type = aicarus_seg_dict.get("type", "")
+            aicarus_data = aicarus_seg_dict.get("data", {})
 
-            napcat_seg_obj: Optional[Dict[str, Any]] = None
-            aicarus_type = aicarus_s.get("type", "")
-            aicarus_data = aicarus_s.get("data", {})
+            logger.debug(
+                f"AIcarus Adapter Send: Converting AIcarus seg: type='{aicarus_type}', data='{aicarus_data}'"
+            )
 
-            if not isinstance(aicarus_data, dict) and aicarus_type not in [
-                "text"
-            ]:  # Text data can be str
-                logger.warning(
-                    f"AIcarus Adapter Send: Segment data for type '{aicarus_type}' is not a dict: {aicarus_data}. Skipping conversion for this segment."
-                )
-                # Optionally, convert to a text representation of the error
-                napcat_array.append(
-                    {
-                        "type": NapcatSegType.text,
-                        "data": {
-                            "text": f"[Error: Seg data for '{aicarus_type}' not a dict]"
-                        },
-                    }
+            # Skip message metadata segments as they are not sent to Napcat
+            if aicarus_type == "message_metadata":
+                logger.debug(
+                    "AIcarus Adapter Send: Skipping message_metadata segment"
                 )
                 continue
 
@@ -420,154 +400,154 @@ class SendHandlerAicarus:
                         aicarus_data
                     )  # Convert whatever is there to string
                     logger.warning(
-                        f"AIcarus Adapter Send: Text segment data format unexpected: {aicarus_data}. Converted to string."
+                        f"AIcarus Adapter Send: Unexpected data format for text segment: {aicarus_data}"
                     )
 
-                napcat_seg_obj = {
-                    "type": NapcatSegType.text,
-                    "data": {"text": text_to_send},
-                }
-            elif aicarus_type == "image":
-                napcat_img_data: Dict[str, Any] = {}
-                if aicarus_data.get("base64"):  # Prioritize base64 if available
-                    napcat_img_data["file"] = f"base64://{aicarus_data['base64']}"
-                elif aicarus_data.get("url"):
-                    napcat_img_data["file"] = aicarus_data["url"]
-                elif aicarus_data.get("file_id"):  # Platform-specific file ID
-                    napcat_img_data["file"] = aicarus_data["file_id"]
-
-                if "file" not in napcat_img_data:
-                    logger.warning(
-                        f"AIcarus Adapter Send: Image segment missing 'file', 'url', or 'base64': {aicarus_data}"
-                    )
-                    continue  # Skip this image segment
-
-                if aicarus_data.get("is_flash"):
-                    napcat_img_data["type"] = (
-                        "flash"  # Napcat specific field for flash image
-                    )
-
-                # Napcat uses subType for stickers (0 for normal image, 1 for sticker)
-                napcat_img_data["subType"] = 1 if aicarus_data.get("is_sticker") else 0
-
-                napcat_seg_obj = {
-                    "type": NapcatSegType.image,
-                    "data": napcat_img_data,
-                }
-            elif aicarus_type == "face":
-                if "face_id" in aicarus_data:
-                    napcat_seg_obj = {
-                        "type": NapcatSegType.face,
-                        "data": {
-                            "id": str(aicarus_data["face_id"])
-                        },  # Napcat uses 'id'
-                    }
-            elif aicarus_type == "at":
-                if "user_id" in aicarus_data:
-                    napcat_seg_obj = {
-                        "type": NapcatSegType.at,
-                        "data": {
-                            "qq": str(aicarus_data["user_id"])
-                        },  # Napcat uses 'qq'
-                    }
-            elif aicarus_type == "reply":
-                # This should ideally be handled at the beginning of the segment list by send_message logic
-                # If it appears mid-list, it's unusual for Napcat.
-                logger.warning(
-                    "AIcarus Adapter Send: 'reply' segment found mid-list during conversion. This is typically handled by send_message logic for Napcat."
+                napcat_message_array.append(
+                    {"type": NapcatSegType.text, "data": {"text": text_to_send}}
                 )
-                # We could try to convert it, but it might not be placed correctly by Napcat if not first.
-                # For now, let's skip it if it's not the first element (which is handled by send_message)
-                # or convert it if we decide adapters should be robust to this.
-                # if "message_id" in aicarus_data:
-                #     napcat_seg_obj = {
-                #         "type": NapcatSegType.reply,
-                #         "data": {"id": str(aicarus_data["message_id"])},
-                #     }
-                pass  # Let send_message logic handle prepending reply seg
-            elif aicarus_type == "voice":
-                napcat_voice_data: Dict[str, Any] = {}
-                if aicarus_data.get("base64"):
-                    napcat_voice_data["file"] = f"base64://{aicarus_data['base64']}"
-                elif aicarus_data.get("url"):
-                    napcat_voice_data["file"] = aicarus_data["url"]
-                elif aicarus_data.get("file_id"):
-                    napcat_voice_data["file"] = aicarus_data["file_id"]
 
-                if "file" in napcat_voice_data:
-                    napcat_seg_obj = {
-                        "type": NapcatSegType.record,  # Napcat uses 'record' for voice
-                        "data": napcat_voice_data,
-                    }
+            elif aicarus_type == "image":
+                image_file = aicarus_data.get("file")
+                if image_file:
+                    napcat_data = {"file": image_file}
+                    # Add optional fields if available
+                    if aicarus_data.get("url"):
+                        napcat_data["url"] = aicarus_data.get("url")
+                    if aicarus_data.get("type"):
+                        napcat_data["type"] = aicarus_data.get("type")
+                    napcat_message_array.append(
+                        {"type": NapcatSegType.image, "data": napcat_data}
+                    )
+                else:
+                    logger.warning(
+                        f"AIcarus Adapter Send: image segment missing file field: {aicarus_data}"
+                    )
+
+            elif aicarus_type == "at":
+                user_id = aicarus_data.get("user_id", "")
+                if user_id:
+                    napcat_message_array.append(
+                        {
+                            "type": NapcatSegType.at,
+                            "data": {"qq": str(user_id)},  # Napcat uses 'qq' field
+                        }
+                    )
+                else:
+                    logger.warning(
+                        f"AIcarus Adapter Send: at segment missing user_id: {aicarus_data}"
+                    )
+
+            elif aicarus_type == "face":
+                face_id = aicarus_data.get("face_id")
+                if face_id is not None:
+                    napcat_message_array.append(
+                        {
+                            "type": NapcatSegType.face,
+                            "data": {"id": str(face_id)},
+                        }
+                    )
+                else:
+                    logger.warning(
+                        f"AIcarus Adapter Send: face segment missing face_id: {aicarus_data}"
+                    )
+
+            elif aicarus_type == "voice":
+                voice_file = aicarus_data.get("file")
+                if voice_file:
+                    napcat_data = {"file": voice_file}
+                    # Add optional fields if available
+                    if aicarus_data.get("url"):
+                        napcat_data["url"] = aicarus_data.get("url")
+                    napcat_message_array.append(
+                        {"type": NapcatSegType.record, "data": napcat_data}
+                    )
+                else:
+                    logger.warning(
+                        f"AIcarus Adapter Send: voice segment missing file field: {aicarus_data}"
+                    )
+
+            elif aicarus_type == "video":
+                video_file = aicarus_data.get("file")
+                if video_file:
+                    napcat_data = {"file": video_file}
+                    # Add optional fields if available
+                    if aicarus_data.get("url"):
+                        napcat_data["url"] = aicarus_data.get("url")
+                    napcat_message_array.append(
+                        {"type": NapcatSegType.video, "data": napcat_data}
+                    )
+                else:
+                    logger.warning(
+                        f"AIcarus Adapter Send: video segment missing file field: {aicarus_data}"
+                    )
+
             elif aicarus_type == "json_card":
-                napcat_seg_obj = {
-                    "type": NapcatSegType.json,
-                    "data": {"data": aicarus_data.get("content", "{}")},
-                }
+                json_content = aicarus_data.get("content", "{}")
+                napcat_message_array.append(
+                    {"type": NapcatSegType.json, "data": {"data": json_content}}
+                )
+
             elif aicarus_type == "xml_card":
-                napcat_seg_obj = {
-                    "type": NapcatSegType.xml,
-                    "data": {"data": aicarus_data.get("content", "")},
-                }
+                xml_content = aicarus_data.get("content", "")
+                napcat_message_array.append(
+                    {"type": NapcatSegType.xml, "data": {"data": xml_content}}
+                )
+
             elif aicarus_type == "share":
-                napcat_share_data = {
+                share_data = {
                     "url": aicarus_data.get("url", ""),
-                    "title": aicarus_data.get(
-                        "title", "分享"
-                    ),  # Default title if missing
+                    "title": aicarus_data.get("title", ""),
                 }
-                if aicarus_data.get("content"):  # Optional description
-                    napcat_share_data["content"] = aicarus_data.get("content")
-                if aicarus_data.get("image_url"):  # Optional image for the share
-                    napcat_share_data["image"] = aicarus_data.get("image_url")
-                napcat_seg_obj = {
-                    "type": NapcatSegType.share,
-                    "data": napcat_share_data,
-                }
+                if aicarus_data.get("content"):
+                    share_data["content"] = aicarus_data.get("content")
+                if aicarus_data.get("image_url"):
+                    share_data["image"] = aicarus_data.get("image_url")
+                napcat_message_array.append(
+                    {"type": NapcatSegType.share, "data": share_data}
+                )
+
             else:
                 logger.warning(
-                    f"AIcarus Adapter Send: Cannot convert Aicarus Seg type '{aicarus_type}' to Napcat segment. Data: {aicarus_data}"
+                    f"AIcarus Adapter Send: Unsupported AIcarus seg type '{aicarus_type}'. Data: {aicarus_data}"
                 )
-                # Fallback to sending a text representation of the unsupported segment
-                unsupported_text = f"[Unsupported Aicarus Seg: {aicarus_type}"
-                if (
-                    isinstance(aicarus_data, dict) and "text" in aicarus_data
-                ):  # If data itself has text, use it
-                    unsupported_text += f" Data: {aicarus_data.get('text')}"
-                elif isinstance(aicarus_data, str):
-                    unsupported_text += f" Data: {aicarus_data}"
-                unsupported_text += "]"
-                napcat_seg_obj = {
-                    "type": NapcatSegType.text,
-                    "data": {"text": unsupported_text},
-                }
+                # Convert unknown segments to text as fallback
+                napcat_message_array.append(
+                    {
+                        "type": NapcatSegType.text,
+                        "data": {
+                            "text": f"[不支持的段类型: {aicarus_type}]"
+                        },
+                    }
+                )
+                continue
 
-            if napcat_seg_obj:
-                napcat_array.append(napcat_seg_obj)
-        return napcat_array
+        logger.debug(
+            f"AIcarus Adapter Send: Converted {len(aicarus_segments)} AIcarus segments to {len(napcat_message_array)} Napcat segments"
+        )
+        return napcat_message_array
 
     async def _send_to_napcat_api(
         self, action: str, params: dict
-    ) -> Optional[dict]:  # Return Optional[dict]
-        if (
-            not self.server_connection or self.server_connection.closed
-        ):  # Check for closed connection
+    ) -> Optional[dict]:
+        """发送API请求到Napcat，并等待响应"""
+        if not self.server_connection:
             logger.error(
-                "AIcarus Adapter Send: Napcat connection not available for API call."
+                f"AIcarus Adapter Send: Cannot send {action} - Napcat connection not available."
             )
-            return {  # Return a dict indicating error, consistent with other returns
+            return {
                 "status": "error",
-                "retcode": -100,  # Custom error code for connection issue
-                "message": "Napcat connection unavailable",
+                "retcode": -100,
+                "message": "Napcat connection not available",
                 "data": None,
             }
 
         request_uuid = str(uuid.uuid4())
-        payload_str = json.dumps(
-            {"action": action, "params": params, "echo": request_uuid}
-        )
+        payload = {"action": action, "params": params, "echo": request_uuid}
+        payload_str = json.dumps(payload)
+
         logger.debug(
-            f"AIcarus Adapter Send: Sending to Napcat API -> Action: {action}, Params: {params}, Echo: {request_uuid}"
+            f"AIcarus Adapter Send: Sending request to Napcat: {payload_str}"
         )
 
         try:
@@ -635,4 +615,5 @@ class SendHandlerAicarus:
             }
 
 
+# 全局实例
 send_handler_aicarus = SendHandlerAicarus()

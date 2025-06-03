@@ -1,3 +1,4 @@
+# AIcarus Napcat Adapter - Communication Layer for Protocol v1.4.0
 # Adapter 作为客户端，连接到 Core WebSocket 服务器的通信层
 import time
 import asyncio
@@ -11,7 +12,7 @@ try:
     from .logger import logger
     from .config import get_config
     # send_handler_aicarus 将被注册为回调，所以这里不需要直接导入它的函数
-    # 但如果需要类型提示，可以考虑 from .send_handler_aicarus import SendHandlerAicarus
+    # 但如果需要类型提示，可以考虑 from .send_handler_aicarus_v1_4_0 import SendHandlerAicarus
 except ImportError:
 
     class FallbackLogger:
@@ -38,8 +39,8 @@ except ImportError:
 
 
 # 定义从 Core 收到的消息的处理回调类型
-# 参数：收到的消息字典 (通常是 AicarusMessageBase.to_dict() 的结果)
-CoreMessageCallback = Callable[[Dict[str, Any]], Awaitable[None]]
+# 参数：收到的消息字典 (通常是 Event.to_dict() 的结果)
+CoreEventCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
 class CoreConnectionClient:
@@ -56,15 +57,15 @@ class CoreConnectionClient:
         self._receive_task: Optional[asyncio.Task] = None  # 接收消息的后台任务
         self._is_running: bool = False
         self._reconnect_delay: int = 5  # 重连延迟（秒）
-        self._on_message_from_core_callback: Optional[CoreMessageCallback] = (
-            None  # 处理从 Core 收到的消息的回调
+        self._on_event_from_core_callback: Optional[CoreEventCallback] = (
+            None  # 处理从 Core 收到的事件的回调
         )
 
-    def register_core_message_handler(self, callback: CoreMessageCallback) -> None:
-        """注册一个回调函数，用于处理从 Core 服务器收到的消息。"""
-        self._on_message_from_core_callback = callback
+    def register_core_event_handler(self, callback: CoreEventCallback) -> None:
+        """注册一个回调函数，用于处理从 Core 服务器收到的事件。"""
+        self._on_event_from_core_callback = callback
         logger.info(
-            f"已为来自 Core 的消息注册处理回调: {callback.__name__ if hasattr(callback, '__name__') else callback}"
+            f"已为来自 Core 的事件注册处理回调: {callback.__name__ if hasattr(callback, '__name__') else callback}"
         )
 
     async def _connect(self) -> bool:
@@ -83,39 +84,40 @@ class CoreConnectionClient:
             self.websocket = await websockets.connect(self.core_ws_url)  # 简单连接
             logger.info(f"已成功连接到 Core WebSocket 服务器: {self.core_ws_url}")
             # 可以在连接成功后发送一个初始的注册/心跳消息 (如果协议需要)
-            # 例如，发送一个 meta:lifecycle connect 事件
+            # 例如，发送一个 meta.lifecycle.connect 事件
             from aicarus_protocols import (
-                MessageBase,
-                BaseMessageInfo,
-                Seg,
+                Event,
+                SegBuilder,
+                EventBuilder,
+                PROTOCOL_VERSION,
             )  # 避免循环导入
+            import uuid
 
-            connect_meta = MessageBase(
-                message_info=BaseMessageInfo(
-                    platform=self.platform_id,  # 用 Adapter 的 ID
-                    bot_id=self.platform_id,  # Adapter 自身标识, 修改为 platform_id
-                    interaction_purpose="platform_meta",
-                    time=time.time() * 1000,
-                    additional_config={"protocol_version": "1.2.0"},  # 使用你的协议版本
-                ),
-                message_segment=Seg(
-                    type="seglist",
-                    data=[
-                        Seg(
-                            type="meta:lifecycle",
-                            data={
-                                "lifecycle_type": "connect",
-                                "details": {
-                                    "adapter_platform": "napcat",
-                                    "adapter_version": "0.1.0",
-                                },
-                            },
-                        )
-                    ],
-                ),
+            connect_event = Event(
+                event_id=f"meta_connect_{uuid.uuid4()}",
+                event_type="meta.lifecycle.connect",
+                time=time.time() * 1000,
+                platform=self.platform_id,  # 用 Adapter 的 ID
+                bot_id=self.platform_id,  # Adapter 自身标识, 修改为 platform_id
+                user_info=None,
+                conversation_info=None,
+                content=[
+                    SegBuilder.lifecycle(
+                        lifecycle_type="connect",
+                        details={
+                            "adapter_platform": "napcat",
+                            "adapter_version": "0.1.0",
+                            "protocol_version": PROTOCOL_VERSION,
+                        },
+                    )
+                ],
+                raw_data=json.dumps({
+                    "source": "adapter_connection",
+                    "platform": self.platform_id,
+                }),
             )
-            await self.send_message_to_core(connect_meta.to_dict())
-            logger.info("已向 Core 发送 platform_meta (lifecycle connect) 消息。")
+            await self.send_event_to_core(connect_event.to_dict())
+            logger.info("已向 Core 发送 meta.lifecycle.connect 事件。")
             return True
         except InvalidURI:
             logger.critical(
@@ -145,18 +147,18 @@ class CoreConnectionClient:
                 message_str = await self.websocket.recv()
                 logger.debug(f"从 Core 收到消息: {message_str[:200]}...")
                 try:
-                    message_dict = json.loads(message_str)
-                    logger.info(f"接收到来自 Core 的消息内容: {message_dict}")
-                    if self._on_message_from_core_callback:
+                    event_dict = json.loads(message_str)
+                    logger.info(f"接收到来自 Core 的事件内容: {event_dict}")
+                    if self._on_event_from_core_callback:
                         # 将收到的字典直接传递给回调函数
-                        # 回调函数 (send_handler_aicarus.handle_aicarus_action) 负责解析为 AicarusMessageBase
-                        await self._on_message_from_core_callback(message_dict)
+                        # 回调函数 (send_handler_aicarus_v1_4_0.handle_aicarus_action) 负责解析为 Event
+                        await self._on_event_from_core_callback(event_dict)
                     else:
-                        logger.warning("收到来自 Core 的消息，但没有注册处理回调。")
+                        logger.warning("收到来自 Core 的事件，但没有注册处理回调。")
                 except json.JSONDecodeError:
                     logger.error(f"从 Core 解码 JSON 失败: {message_str}")
                 except Exception as e_proc:
-                    logger.error(f"处理来自 Core 的消息时出错: {e_proc}", exc_info=True)
+                    logger.error(f"处理来自 Core 的事件时出错: {e_proc}", exc_info=True)
             except ConnectionClosed:
                 logger.warning("与 Core 的 WebSocket 连接已关闭。将尝试重连。")
                 break  # 退出接收循环，外层循环会处理重连
@@ -165,12 +167,12 @@ class CoreConnectionClient:
                 # 发生未知错误时，也尝试断开并重连
                 await asyncio.sleep(self._reconnect_delay / 2.0)  # 短暂等待后尝试重连
                 break
-        logger.info("Core 消息接收循环已停止。")
+        logger.info("Core 事件接收循环已停止。")
 
     async def run_forever(self) -> None:
         """启动并永久运行与 Core 的连接，包括自动重连。"""
-        if not self._on_message_from_core_callback:
-            logger.error("Core 消息处理回调未注册，无法启动与 Core 的通信。")
+        if not self._on_event_from_core_callback:
+            logger.error("Core 事件处理回调未注册，无法启动与 Core 的通信。")
             return
 
         self._is_running = True
@@ -218,7 +220,7 @@ class CoreConnectionClient:
             try:
                 await self._receive_task  # 等待任务实际取消
             except asyncio.CancelledError:
-                logger.debug("Core 消息接收任务已成功取消。")
+                logger.debug("Core 事件接收任务已成功取消。")
             except Exception as e_cancel:
                 logger.error(f"等待接收任务取消时发生错误: {e_cancel}")
 
@@ -232,114 +234,118 @@ class CoreConnectionClient:
         self.websocket = None
         logger.info("与 Core 的通信已完全停止。")
 
-    async def send_message_to_core(self, message_dict: Dict[str, Any]) -> bool:
+    async def send_event_to_core(self, event_dict: Dict[str, Any]) -> bool:
         """
-        向 Core 发送一个已转换为字典的 AicarusMessageBase 消消息。
+        向 Core 发送一个已转换为字典的 Event 事件。
 
         Args:
-            message_dict (Dict[str, Any]): 要发送的消息字典。
+            event_dict (Dict[str, Any]): 要发送的事件字典。
 
         Returns:
-            bool: 如果消息成功发送则为 True，否则为 False。
+            bool: 如果事件成功发送则为 True，否则为 False。
         """
         if not self.websocket or not self.websocket.open:
-            logger.warning("无法发送消息给 Core：未连接或连接已关闭。")
+            logger.warning("无法发送事件给 Core：未连接或连接已关闭。")
             return False
         try:
-            message_json = json.dumps(message_dict, ensure_ascii=False)
-            logger.info(f"发送消息到 Core: {message_json}")  # 打印发送的消息内容
-            await self.websocket.send(message_json)
-            logger.debug(f"成功发送消息给 Core: {message_json[:200]}...")
+            event_json = json.dumps(event_dict, ensure_ascii=False)
+            logger.info(f"发送事件到 Core: {event_json}")  # 打印发送的事件内容
+            await self.websocket.send(event_json)
+            logger.debug(f"成功发送事件给 Core: {event_json[:200]}...")
             return True
         except TypeError as e_json:  # JSON 序列化错误
             logger.error(
-                f"序列化发送给 Core 的消息时出错: {e_json}. 消息内容: {message_dict}",
+                f"序列化发送给 Core 的事件时出错: {e_json}. 事件内容: {event_dict}",
                 exc_info=True,
             )
             return False
         except WebSocketException as e_ws:  # WebSocket 发送错误
             logger.error(
-                f"通过 WebSocket 发送消息给 Core 时出错: {e_ws}", exc_info=True
+                f"通过 WebSocket 发送事件给 Core 时出错: {e_ws}", exc_info=True
             )
             # 可以在这里触发重连逻辑，或者让主循环处理
             return False
         except Exception as e:
-            logger.error(f"发送消息给 Core 时发生未知错误: {e}", exc_info=True)
+            logger.error(f"发送事件给 Core 时发生未知错误: {e}", exc_info=True)
             return False
 
 
 # --- 创建单例供其他模块使用 ---
-# 这个实例将在 main_aicarus.py 中被获取和启动
+# 这个实例将在 main_aicarus_v1_4_0.py 中被获取和启动
 core_connection_client = CoreConnectionClient()
 
 
-# --- 辅助函数，用于在 main_aicarus.py 中调用 ---
-async def mmc_start_com() -> None:
+# --- 辅助函数，用于在 main_aicarus_v1_4_0.py 中调用 ---
+async def aic_start_com() -> None:
     """启动与 Core 的通信。"""
-    # send_handler_aicarus 将在 main_aicarus.py 中被注册
+    # send_handler_aicarus_v1_4_0 将在 main_aicarus_v1_4_0.py 中被注册
     # 这里仅启动连接和接收循环
     # run_forever 是一个阻塞调用（在其内部循环），所以需要 create_task
     asyncio.create_task(core_connection_client.run_forever())
 
 
-async def mmc_stop_com() -> None:
+async def aic_stop_com() -> None:
     """停止与 Core 的通信。"""
     await core_connection_client.stop_communication()
 
 
 # 将 core_connection_client 重命名为 router_aicarus 以匹配你之前的用法
-# 这样 main_aicarus.py 中的 recv_handler_aicarus.maibot_router = router 就能工作
+# 这样 main_aicarus_v1_4_0.py 中的 recv_handler_aicarus.maibot_router = router 就能工作
 router_aicarus = core_connection_client
 
 
 if __name__ == "__main__":
     # 简单的本地测试 (需要一个能响应的 WebSocket 服务器在配置的 core_ws_url 上运行)
     async def main_test():
-        logger.info("--- Core 通信层客户端测试 ---")
+        logger.info("--- Core 通信层客户端测试 (v1.4.0) ---")
 
-        # 模拟 Core 发送消息的处理函数
-        async def dummy_core_message_handler(msg_dict: Dict[str, Any]):
-            logger.info(f"[TEST HANDLER] 从 Core 收到消息: {msg_dict}")
+        # 模拟 Core 发送事件的处理函数
+        async def dummy_core_event_handler(event_dict: Dict[str, Any]):
+            logger.info(f"[TEST HANDLER] 从 Core 收到事件: {event_dict}")
             # 可以在这里模拟 Core 发送一个动作回来
             # if core_connection_client.websocket and core_connection_client.websocket.open:
             #     action_reply = {
-            #         "message_info": {"interaction_purpose": "core_action", "...": "..."},
-            #         "message_segment": {"type": "seglist", "data": [{"type": "action:some_action", "data": {}}]}
+            #         "event_id": "action_test_123",
+            #         "event_type": "action.send_message", 
+            #         "time": time.time() * 1000,
+            #         "platform": "core",
+            #         "bot_id": "core_bot",
+            #         "content": [{"type": "send_message", "data": {"segments": [{"type": "text", "data": {"text": "Test action"}}]}}]
             #     }
-            #     await core_connection_client.send_message_to_core(action_reply)
+            #     await core_connection_client.send_event_to_core(action_reply)
 
-        core_connection_client.register_core_message_handler(dummy_core_message_handler)
+        core_connection_client.register_core_event_handler(dummy_core_event_handler)
 
         # 启动通信层 (它会自己处理连接和接收)
         # run_forever 是阻塞的，所以用 create_task
         comm_task = asyncio.create_task(core_connection_client.run_forever())
 
-        # 模拟 Adapter 发送消息给 Core
+        # 模拟 Adapter 发送事件给 Core
         await asyncio.sleep(5)  # 等待连接建立
         if core_connection_client.websocket and core_connection_client.websocket.open:
-            logger.info("测试：Adapter 尝试发送一条消息给 Core...")
-            test_message_to_core = {  # 这是一个模拟的 AicarusMessageBase 字典
-                "message_info": {
-                    "platform": get_config().core_platform_id,
-                    "bot_id": "test_bot_from_adapter",
-                    "interaction_purpose": "user_message",
-                    "time": time.time() * 1000,
-                    "message_id": "adapter_msg_123",
-                    "additional_config": {"protocol_version": "1.2.0"},
-                },
-                "message_segment": {
-                    "type": "seglist",
-                    "data": [
-                        {
-                            "type": "text",
-                            "data": "你好，Core！来自 Adapter 的测试消息。",
-                        }
-                    ],
-                },
-            }
-            await core_connection_client.send_message_to_core(test_message_to_core)
+            logger.info("测试：Adapter 尝试发送一条事件给 Core...")
+            from aicarus_protocols import Event, SegBuilder
+            import uuid
+            
+            test_event_to_core = Event(
+                event_id=f"test_msg_{uuid.uuid4()}",
+                event_type="message.private.friend",
+                time=time.time() * 1000,
+                platform=get_config().core_platform_id,
+                bot_id="test_bot_from_adapter",
+                user_info=None,
+                conversation_info=None,
+                content=[
+                    SegBuilder.text("你好，Core！来自 Adapter 的测试消息 (v1.4.0)。")
+                ],
+                raw_data=json.dumps({
+                    "source": "adapter_test",
+                    "test": True,
+                })
+            )
+            await core_connection_client.send_event_to_core(test_event_to_core.to_dict())
         else:
-            logger.warning("测试：未能连接到 Core，无法发送测试消息。")
+            logger.warning("测试：未能连接到 Core，无法发送测试事件。")
 
         await asyncio.sleep(10)  # 保持运行一段时间以接收消息或测试重连
 
