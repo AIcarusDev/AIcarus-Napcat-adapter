@@ -226,6 +226,74 @@ class CoreConnectionClient:
         self.websocket = None
         logger.info("与 Core 的通信已完全停止。")
 
+    def _get_simplified_event_description(self, event_dict: Dict[str, Any]) -> str:
+        """获取事件的简化描述，用于日志显示"""
+        try:
+            event_type = event_dict.get("event_type", "unknown")
+            event_id = event_dict.get("event_id", "")
+            
+            # 如果是消息事件，提取简化的内容描述
+            if event_type.startswith("message."):
+                content = event_dict.get("content", [])
+                simplified_content = []
+                
+                for seg in content:
+                    if isinstance(seg, dict):
+                        seg_type = seg.get("type", "")
+                        if seg_type == "text":
+                            text = seg.get("data", {}).get("text", "")
+                            simplified_content.append(text[:50] + "..." if len(text) > 50 else text)
+                        elif seg_type == "image":
+                            simplified_content.append("[图片]")
+                        elif seg_type == "face":
+                            face_name = seg.get("data", {}).get("name", "[表情]")
+                            simplified_content.append(face_name)
+                        elif seg_type == "at":
+                            user_id = seg.get("data", {}).get("user_id", "")
+                            simplified_content.append(f"@{user_id}")
+                        elif seg_type == "record":
+                            simplified_content.append("[语音]")
+                        elif seg_type == "video":
+                            simplified_content.append("[视频]")
+                        elif seg_type == "forward":
+                            simplified_content.append("[合并转发]")
+                        elif seg_type == "json_card":
+                            simplified_content.append("[JSON卡片]")
+                        elif seg_type == "xml_card":
+                            simplified_content.append("[XML卡片]")
+                        elif seg_type == "share":
+                            simplified_content.append("[分享]")
+                        elif seg_type == "message.metadata":
+                            continue  # 跳过元数据段
+                        else:
+                            simplified_content.append(f"[{seg_type}]")
+                
+                content_str = "".join(simplified_content)
+                
+                # 添加用户和群组信息
+                user_info = event_dict.get("user_info", {})
+                conversation_info = event_dict.get("conversation_info", {})
+                
+                user_name = user_info.get("user_nickname", "") or user_info.get("user_id", "")
+                group_name = conversation_info.get("name", "") or conversation_info.get("conversation_id", "")
+                
+                if conversation_info.get("type") == "group":
+                    return f"群消息 {group_name}({user_name}): {content_str}"
+                else:
+                    return f"私聊消息 {user_name}: {content_str}"
+                    
+            elif event_type.startswith("notice."):
+                return f"通知事件: {event_type}"
+            elif event_type.startswith("request."):
+                return f"请求事件: {event_type}"
+            elif event_type.startswith("meta."):
+                return f"元事件: {event_type}"
+            else:
+                return f"事件: {event_type} (ID: {event_id})"
+                
+        except Exception as e:
+            return f"事件解析错误: {e}"
+
     async def send_event_to_core(self, event_dict: Dict[str, Any]) -> bool:
         """
         向 Core 发送一个已转换为字典的 Event 事件。
@@ -241,9 +309,16 @@ class CoreConnectionClient:
             return False
         try:
             event_json = json.dumps(event_dict, ensure_ascii=False)
-            logger.info(f"发送事件到 Core: {event_json}")  # 打印发送的事件内容
+            
+            # 使用简化描述进行info级别日志
+            simplified_desc = self._get_simplified_event_description(event_dict)
+            logger.info(f"发送事件到 Core: {simplified_desc}")
+            
+            # 原始完整事件放到debug级别
+            logger.debug(f"完整事件内容: {event_json}")
+            
             await self.websocket.send(event_json)
-            logger.debug(f"成功发送事件给 Core: {event_json[:200]}...")
+            logger.debug(f"成功发送事件给 Core")
             return True
         except TypeError as e_json:  # JSON 序列化错误
             logger.error(

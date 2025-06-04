@@ -1,15 +1,13 @@
 # Adapter 项目专属的工具函数，主要用于与 Napcat API 交互
-
-import json
-import base64
-import uuid
-import asyncio
-import ssl
 from typing import Dict, Any, Optional, Union, List
-
-import aiohttp  # 使用 aiohttp 进行异步 HTTP 请求
-from PIL import Image  # 用于图片格式处理
+import asyncio
+import json
+import uuid
+import aiohttp
+import ssl
+import base64
 import io
+from PIL import Image  # 用于图片格式处理
 
 # 从同级目录导入
 try:
@@ -50,7 +48,7 @@ async def _call_napcat_api(
     server_connection: Any,  # 类型应为 websockets.server.WebSocketServerProtocol，但避免循环导入
     action: str,
     params: Dict[str, Any],
-    timeout_seconds: float = 10.0,  # 为API调用设置一个默认超时
+    timeout_seconds: float = 15.0,  # 为API调用设置一个默认超时
 ) -> Optional[Dict[str, Any]]:
     """
     通用的 Napcat API 调用函数。
@@ -188,11 +186,11 @@ async def get_image_base64_from_url(url: str, timeout: int = 10) -> Optional[str
             async with session.get(url, timeout=timeout) as response:
                 if response.status == 200:
                     image_bytes = await response.read()
-                    return base64.b64encode(image_bytes).decode("utf-8")
+                    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                    logger.debug(f"成功下载并编码图片: {url}")
+                    return image_base64
                 else:
-                    logger.error(
-                        f"下载图片失败 (URL: {url}), HTTP 状态码: {response.status}"
-                    )
+                    logger.error(f"下载图片失败 (HTTP {response.status}): {url}")
                     return None
     except asyncio.TimeoutError:
         logger.error(f"下载图片超时 (URL: {url}, 超时: {timeout}s)")
@@ -209,7 +207,7 @@ def get_image_format_from_base64(base64_data: str) -> Optional[str]:
         image = Image.open(io.BytesIO(image_bytes))
         return image.format.lower() if image.format else None
     except Exception as e:
-        logger.warning(f"从 Base64 确定图像格式失败: {e}")
+        logger.error(f"确定图像格式时发生错误: {e}")
         return None
 
 
@@ -218,28 +216,18 @@ def convert_image_to_gif_base64(image_base64: str) -> Optional[str]:
     try:
         image_bytes = base64.b64decode(image_base64)
         image = Image.open(io.BytesIO(image_bytes))
-
-        # 如果已经是 GIF，直接返回 (或者根据需要重新编码以标准化)
-        # if image.format == "GIF":
-        #     logger.debug("图片已经是 GIF 格式，无需转换。")
-        #     return image_base64
-
+        
+        # 转换为 GIF 格式
         output_buffer = io.BytesIO()
-        # Pillow 保存 GIF 时，如果原图是 RGBA 且有透明度，可能会有问题
-        # 最好先转换为 P 模式 (带调色板) 或 RGB
-        if image.mode == "RGBA" or image.mode == "LA":
-            image = image.convert("RGB")  # 转换为 RGB 以避免某些 GIF 保存问题
-            # 或者，如果需要保留透明度，转换为 P 模式并处理调色板，但这更复杂
-            # image = image.convert("P", palette=Image.ADAPTIVE, colors=255)
-
-        image.save(output_buffer, format="GIF")  # Pillow 会自动处理多帧GIF的保存
-        output_buffer.seek(0)
-        gif_base64 = base64.b64encode(output_buffer.read()).decode("utf-8")
-        logger.debug("图片已成功转换为 GIF Base64。")
+        image.save(output_buffer, format='GIF')
+        gif_bytes = output_buffer.getvalue()
+        
+        # 转换为 Base64
+        gif_base64 = base64.b64encode(gif_bytes).decode('utf-8')
         return gif_base64
     except Exception as e:
-        logger.error(f"图片转换为 GIF 失败: {e}", exc_info=True)
-        return None  # 或者返回原始 base64，取决于错误处理策略
+        logger.error(f"转换图片为 GIF 格式时发生错误: {e}")
+        return None
 
 
 if __name__ == "__main__":

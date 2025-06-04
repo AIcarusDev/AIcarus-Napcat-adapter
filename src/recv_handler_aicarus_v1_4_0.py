@@ -18,6 +18,7 @@ from .utils import (
     napcat_get_member_info,
     napcat_get_self_info,
     napcat_get_forward_msg_content,
+    get_image_base64_from_url,  # 添加图片处理工具
 )
 from .napcat_definitions_v1_4_0 import (
     MetaEventType,
@@ -356,13 +357,28 @@ class RecvHandlerAicarus:
                 )
                 
             elif seg_type == NapcatSegType.image:
+                # 处理图片：下载并转换为base64
+                image_url = seg_data.get("url")
+                image_base64 = None
+                
+                if image_url:
+                    try:
+                        image_base64 = await get_image_base64_from_url(image_url)
+                        if image_base64:
+                            logger.debug(f"成功下载并转换图片为base64: {image_url}")
+                        else:
+                            logger.warning(f"下载图片失败，将使用原始URL: {image_url}")
+                    except Exception as e:
+                        logger.error(f"处理图片时发生错误: {e}")
+                
                 aicarus_s = Seg(
                     type="image",
                     data={
-                        "url": seg_data.get("url"),
+                        "url": image_url,
                         "file_id": seg_data.get("file"),
                         "file_size": seg_data.get("file_size"),
-                        "file_unique": seg_data.get("file_unique")
+                        "file_unique": seg_data.get("file_unique"),
+                        "base64": image_base64,  # 添加base64字段
                     }
                 )
                 

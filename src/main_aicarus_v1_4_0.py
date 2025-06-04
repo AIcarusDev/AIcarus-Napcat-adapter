@@ -89,7 +89,8 @@ async def napcat_message_receiver(
 
                 # 构造 v1.4.0 事件
                 conversation_info = None
-                if group_id:                    conversation_info = ConversationInfo(
+                if group_id:
+                    conversation_info = ConversationInfo(
                         conversation_id=group_id,
                         type=ConversationType.GROUP,
                         platform="napcat_qq",
@@ -99,16 +100,19 @@ async def napcat_message_receiver(
                 user_info = UserInfo(
                     platform="napcat_qq",
                     user_id=user_id,
-                    user_name="", # 可以后续获取
-                    user_displayname="",
+                    user_nickname="", # 可以后续获取
+                    user_cardname="",
                 )
 
-                # 构造事件内容
+                # 构造事件内容 - 修复 SegBuilder 使用
                 content_segs = [
-                    SegBuilder.message_sent(
-                        sent_message_id=str(napcat_event.get("message_id", "")),
-                        raw_message=napcat_event.get("raw_message"),
-                        message_content=napcat_event.get("message"),
+                    Seg(
+                        type="message_sent",
+                        data={
+                            "sent_message_id": str(napcat_event.get("message_id", "")),
+                            "raw_message": napcat_event.get("raw_message"),
+                            "message_content": napcat_event.get("message"),
+                        }
                     )
                 ]
 

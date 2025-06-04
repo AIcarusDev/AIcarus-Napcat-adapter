@@ -1,10 +1,9 @@
 # AIcarus Napcat Adapter - Send Handler for Protocol v1.4.0
 # aicarus_napcat_adapter/src/send_handler_aicarus_v1_4_0.py
-import asyncio
-import json
-import websockets
-import uuid
 from typing import List, Dict, Any, Optional
+import json
+import uuid
+import websockets
 
 # 项目内部模块
 from .logger import logger
@@ -100,9 +99,6 @@ class SendHandlerAicarus:
                         if aicarus_event.conversation_info and aicarus_event.conversation_info.conversation_id:
                             if aicarus_event.conversation_info.type == ConversationType.GROUP:
                                 target_group_id = aicarus_event.conversation_info.conversation_id
-                                # 如果有群目标，通常私聊目标会被忽略或不适用
-                                if target_group_id:
-                                    target_user_id = None
 
                     napcat_segments_to_send = (
                         await self._aicarus_seglist_to_napcat_array(
@@ -128,9 +124,9 @@ class SendHandlerAicarus:
                             napcat_segments_to_send.insert(
                                 0,
                                 {
-                                    "type": NapcatSegType.reply,  # 使用 Napcat 定义的 reply 类型
+                                    "type": NapcatSegType.reply,
                                     "data": {
-                                        "id": str(  # Napcat 的 reply id 通常是字符串形式的消息ID
+                                        "id": str(
                                             action_data.get("reply_to_message_id")
                                         )
                                     },
@@ -204,7 +200,7 @@ class SendHandlerAicarus:
                         success = response and response.get("status") == "ok"
                         if not success:
                             error_message = (
-                                response.get("message", "Failed to delete message")
+                                response.get("message", "Napcat API error for delete_msg")
                                 if response
                                 else "No response from Napcat API"
                             )
@@ -219,9 +215,8 @@ class SendHandlerAicarus:
                         target_uid = int(target_uid_str)  # Napcat API needs int
                         params = {"user_id": target_uid}
 
-                        if target_gid_str:  # Group poke
-                            target_gid = int(target_gid_str)
-                            params["group_id"] = target_gid
+                        if target_gid_str:
+                            params["group_id"] = int(target_gid_str)
 
                         logger.debug(
                             f"AIcarus Adapter Send: Executing poke with params: {params}"
@@ -230,7 +225,7 @@ class SendHandlerAicarus:
                         success = response and response.get("status") == "ok"
                         if not success:
                             error_message = (
-                                response.get("message", "Poke action failed")
+                                response.get("message", "Napcat API error for send_poke")
                                 if response
                                 else "No response from Napcat API"
                             )
@@ -244,9 +239,7 @@ class SendHandlerAicarus:
                     remark = action_data.get("remark")  # Optional
                     if request_flag:
                         params_fh = {"flag": request_flag, "approve": approve}
-                        if (
-                            approve and remark
-                        ):  # Only add remark if approving and remark is provided
+                        if approve and remark:
                             params_fh["remark"] = remark
                         response = await self._send_to_napcat_api(
                             "set_friend_add_request", params_fh
@@ -254,9 +247,7 @@ class SendHandlerAicarus:
                         success = response and response.get("status") == "ok"
                         if not success:
                             error_message = (
-                                response.get(
-                                    "message", "Failed to handle friend request"
-                                )
+                                response.get("message", "Napcat API error for set_friend_add_request")
                                 if response
                                 else "No response from Napcat API"
                             )
@@ -292,12 +283,10 @@ class SendHandlerAicarus:
                         reason = action_data.get("reason")  # Optional, for rejection
                         params_gh = {
                             "flag": request_flag,
-                            "sub_type": napcat_sub_type_for_api,  # Mapped type
+                            "sub_type": napcat_sub_type_for_api,
                             "approve": approve,
                         }
-                        if (
-                            not approve and reason
-                        ):  # Only add reason if rejecting and reason is provided
+                        if not approve and reason:
                             params_gh["reason"] = reason
                         response = await self._send_to_napcat_api(
                             "set_group_add_request", params_gh
@@ -305,9 +294,7 @@ class SendHandlerAicarus:
                         success = response and response.get("status") == "ok"
                         if not success:
                             error_message = (
-                                response.get(
-                                    "message", "Failed to handle group request"
-                                )
+                                response.get("message", "Napcat API error for set_group_add_request")
                                 if response
                                 else "No response from Napcat API"
                             )
