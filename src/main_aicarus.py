@@ -107,7 +107,7 @@ async def napcat_message_receiver(
                 # 构造事件内容 - 先添加元数据段，与普通消息结构一致
                 content_segs = [
                     Seg(
-                        type="message.metadata",
+                        type="message_metadata",
                         data={
                             "message_id": message_id,
                             "font": napcat_event.get("font", None),

@@ -270,7 +270,7 @@ class CoreConnectionClient:
                             simplified_content.append("[XML卡片]")
                         elif seg_type == "share":
                             simplified_content.append("[分享]")
-                        elif seg_type == "message.metadata":
+                        elif seg_type == "message_metadata":
                             continue  # 跳过元数据段
                         else:
                             simplified_content.append(f"[{seg_type}]")
