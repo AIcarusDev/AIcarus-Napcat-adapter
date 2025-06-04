@@ -9,10 +9,10 @@ import websockets  # 确保导入
 
 # 项目内部模块
 from .logger import logger
-from .recv_handler_aicarus_v1_4_0 import RecvHandlerAicarus
-from .send_handler_aicarus_v1_4_0 import send_handler_aicarus
+from .recv_handler_aicarus import RecvHandlerAicarus
+from .send_handler_aicarus import send_handler_aicarus
 from .config import get_config  # 使用 get_config()
-from .aic_com_layer_v1_4_0 import (  # 从新的 v1.4.0 通信层导入
+from .aic_com_layer import (  # 从新的 v1.4.0 通信层导入
     aic_start_com,  # 这个函数现在会启动 core_connection_client.run_forever()
     aic_stop_com,  # 这个函数会调用 core_connection_client.stop_communication()
     router_aicarus as core_router,  # router_aicarus 是 core_connection_client 的实例
@@ -31,9 +31,6 @@ from aicarus_protocols import (
     UserInfo,
     ConversationInfo,
     Seg,
-    SegBuilder,
-    EventBuilder,
-    EventType,
     ConversationType,
     PROTOCOL_VERSION,
 )
@@ -94,13 +91,13 @@ async def napcat_message_receiver(
                         conversation_id=group_id,
                         type=ConversationType.GROUP,
                         platform="napcat_qq",
-                        name="", # 可以后续获取
+                        name="",  # 可以后续获取
                     )
 
                 user_info = UserInfo(
                     platform="napcat_qq",
                     user_id=user_id,
-                    user_nickname="", # 可以后续获取
+                    user_nickname="",  # 可以后续获取
                     user_cardname="",
                 )
 
@@ -112,7 +109,7 @@ async def napcat_message_receiver(
                             "sent_message_id": str(napcat_event.get("message_id", "")),
                             "raw_message": napcat_event.get("raw_message"),
                             "message_content": napcat_event.get("message"),
-                        }
+                        },
                     )
                 ]
 
@@ -126,7 +123,7 @@ async def napcat_message_receiver(
                     user_info=user_info,
                     conversation_info=conversation_info,
                     content=content_segs,
-                    raw_data=json.dumps(napcat_event)
+                    raw_data=json.dumps(napcat_event),
                 )
                 await recv_handler_aicarus.dispatch_to_core(message_sent_event)
             else:
@@ -205,9 +202,7 @@ async def start_napcat_websocket_server(config):
             )
             await asyncio.Future()  # 永远运行
     except Exception as e:
-        logger.critical(
-            f"启动 Napcat WebSocket 服务器时发生错误: {e}", exc_info=True
-        )
+        logger.critical(f"启动 Napcat WebSocket 服务器时发生错误: {e}", exc_info=True)
         sys.exit(1)
 
 

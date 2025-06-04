@@ -186,7 +186,7 @@ async def get_image_base64_from_url(url: str, timeout: int = 10) -> Optional[str
             async with session.get(url, timeout=timeout) as response:
                 if response.status == 200:
                     image_bytes = await response.read()
-                    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
                     logger.debug(f"成功下载并编码图片: {url}")
                     return image_base64
                 else:
@@ -216,14 +216,14 @@ def convert_image_to_gif_base64(image_base64: str) -> Optional[str]:
     try:
         image_bytes = base64.b64decode(image_base64)
         image = Image.open(io.BytesIO(image_bytes))
-        
+
         # 转换为 GIF 格式
         output_buffer = io.BytesIO()
-        image.save(output_buffer, format='GIF')
+        image.save(output_buffer, format="GIF")
         gif_bytes = output_buffer.getvalue()
-        
+
         # 转换为 Base64
-        gif_base64 = base64.b64encode(gif_bytes).decode('utf-8')
+        gif_base64 = base64.b64encode(gif_bytes).decode("utf-8")
         return gif_base64
     except Exception as e:
         logger.error(f"转换图片为 GIF 格式时发生错误: {e}")

@@ -79,7 +79,7 @@ class CoreConnectionClient:
             )
             self.websocket = await websockets.connect(self.core_ws_url)
             logger.info(f"已成功连接到 Core WebSocket 服务器: {self.core_ws_url}")
-            
+
             # 发送连接事件，使用正确的 Seg 构造
             from aicarus_protocols import Event, Seg, PROTOCOL_VERSION
             import uuid
@@ -94,19 +94,24 @@ class CoreConnectionClient:
                 user_info=None,
                 conversation_info=None,
                 content=[
-                    Seg(type="meta.lifecycle", data={
-                        "lifecycle_type": "connect",
-                        "details": {
-                            "adapter_platform": "napcat",
-                            "adapter_version": "0.1.0",
-                            "protocol_version": PROTOCOL_VERSION,
+                    Seg(
+                        type="meta.lifecycle",
+                        data={
+                            "lifecycle_type": "connect",
+                            "details": {
+                                "adapter_platform": "napcat",
+                                "adapter_version": "0.1.0",
+                                "protocol_version": PROTOCOL_VERSION,
+                            },
                         },
-                    })
+                    )
                 ],
-                raw_data=json.dumps({
-                    "source": "adapter_connection",
-                    "platform": self.platform_id,
-                }),
+                raw_data=json.dumps(
+                    {
+                        "source": "adapter_connection",
+                        "platform": self.platform_id,
+                    }
+                ),
             )
             await self.send_event_to_core(connect_event.to_dict())
             logger.info("已向 Core 发送 meta.lifecycle.connect 事件。")
@@ -231,18 +236,20 @@ class CoreConnectionClient:
         try:
             event_type = event_dict.get("event_type", "unknown")
             event_id = event_dict.get("event_id", "")
-            
+
             # 如果是消息事件，提取简化的内容描述
             if event_type.startswith("message."):
                 content = event_dict.get("content", [])
                 simplified_content = []
-                
+
                 for seg in content:
                     if isinstance(seg, dict):
                         seg_type = seg.get("type", "")
                         if seg_type == "text":
                             text = seg.get("data", {}).get("text", "")
-                            simplified_content.append(text[:50] + "..." if len(text) > 50 else text)
+                            simplified_content.append(
+                                text[:50] + "..." if len(text) > 50 else text
+                            )
                         elif seg_type == "image":
                             simplified_content.append("[图片]")
                         elif seg_type == "face":
@@ -267,21 +274,25 @@ class CoreConnectionClient:
                             continue  # 跳过元数据段
                         else:
                             simplified_content.append(f"[{seg_type}]")
-                
+
                 content_str = "".join(simplified_content)
-                
+
                 # 添加用户和群组信息
                 user_info = event_dict.get("user_info", {})
                 conversation_info = event_dict.get("conversation_info", {})
-                
-                user_name = user_info.get("user_nickname", "") or user_info.get("user_id", "")
-                group_name = conversation_info.get("name", "") or conversation_info.get("conversation_id", "")
-                
+
+                user_name = user_info.get("user_nickname", "") or user_info.get(
+                    "user_id", ""
+                )
+                group_name = conversation_info.get("name", "") or conversation_info.get(
+                    "conversation_id", ""
+                )
+
                 if conversation_info.get("type") == "group":
                     return f"群消息 {group_name}({user_name}): {content_str}"
                 else:
                     return f"私聊消息 {user_name}: {content_str}"
-                    
+
             elif event_type.startswith("notice."):
                 return f"通知事件: {event_type}"
             elif event_type.startswith("request."):
@@ -290,7 +301,7 @@ class CoreConnectionClient:
                 return f"元事件: {event_type}"
             else:
                 return f"事件: {event_type} (ID: {event_id})"
-                
+
         except Exception as e:
             return f"事件解析错误: {e}"
 
@@ -309,16 +320,16 @@ class CoreConnectionClient:
             return False
         try:
             event_json = json.dumps(event_dict, ensure_ascii=False)
-            
+
             # 使用简化描述进行info级别日志
             simplified_desc = self._get_simplified_event_description(event_dict)
             logger.info(f"发送事件到 Core: {simplified_desc}")
-            
+
             # 原始完整事件放到debug级别
             logger.debug(f"完整事件内容: {event_json}")
-            
+
             await self.websocket.send(event_json)
-            logger.debug(f"成功发送事件给 Core")
+            logger.debug("成功发送事件给 Core")
             return True
         except TypeError as e_json:  # JSON 序列化错误
             logger.error(
@@ -373,7 +384,7 @@ if __name__ == "__main__":
             # if core_connection_client.websocket and core_connection_client.websocket.open:
             #     action_reply = {
             #         "event_id": "action_test_123",
-            #         "event_type": "action.send_message", 
+            #         "event_type": "action.send_message",
             #         "time": time.time() * 1000,
             #         "platform": "core",
             #         "bot_id": "core_bot",
@@ -393,7 +404,7 @@ if __name__ == "__main__":
             logger.info("测试：Adapter 尝试发送一条事件给 Core...")
             from aicarus_protocols import Event, SegBuilder
             import uuid
-            
+
             test_event_to_core = Event(
                 event_id=f"test_msg_{uuid.uuid4()}",
                 event_type="message.private.friend",
@@ -405,12 +416,16 @@ if __name__ == "__main__":
                 content=[
                     SegBuilder.text("你好，Core！来自 Adapter 的测试消息 (v1.4.0)。")
                 ],
-                raw_data=json.dumps({
-                    "source": "adapter_test",
-                    "test": True,
-                })
+                raw_data=json.dumps(
+                    {
+                        "source": "adapter_test",
+                        "test": True,
+                    }
+                ),
             )
-            await core_connection_client.send_event_to_core(test_event_to_core.to_dict())
+            await core_connection_client.send_event_to_core(
+                test_event_to_core.to_dict()
+            )
         else:
             logger.warning("测试：未能连接到 Core，无法发送测试事件。")
 

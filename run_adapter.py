@@ -6,20 +6,15 @@ AIcarus Napcat Adapter v1.4.0 启动脚本
 """
 
 import sys
-import os
 
-# 将项目根目录添加到 Python 路径
-project_root = os.path.dirname(os.path.abspath(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from src.main_aicarus_v1_4_0 import main
+from src.main_aicarus import main
 from src.logger import logger  # 现在可以尝试导入 Adapter 自己的 logger
 
 if __name__ == "__main__":
     logger.info("AIcarus Napcat Adapter v1.4.0 正在通过 run_adapter_v1_4_0.py 启动...")
     try:
         import asyncio
+
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("程序被用户中断。")

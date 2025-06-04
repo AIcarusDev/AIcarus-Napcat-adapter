@@ -5,6 +5,7 @@ import json
 import uuid
 import websockets
 import asyncio
+
 # 项目内部模块
 from .logger import logger
 
@@ -15,13 +16,9 @@ from .message_queue import get_napcat_api_response
 from aicarus_protocols import (
     Event,
     Seg,
-    SegBuilder,
-    EventBuilder,
-    EventType,
     ConversationType,
-    PROTOCOL_VERSION,
 )
-from .napcat_definitions_v1_4_0 import NapcatSegType  # Napcat 消息段类型定义
+from .napcat_definitions import NapcatSegType  # Napcat 消息段类型定义
 
 
 class SendHandlerAicarus:
@@ -38,9 +35,7 @@ class SendHandlerAicarus:
         try:
             aicarus_event = Event.from_dict(raw_aicarus_event_dict)
         except Exception as e:
-            logger.error(
-                f"AIcarus Adapter Send: Failed to parse Event from dict: {e}"
-            )
+            logger.error(f"AIcarus Adapter Send: Failed to parse Event from dict: {e}")
             logger.error(f"Received dict: {raw_aicarus_event_dict}")
             return
 
@@ -96,9 +91,17 @@ class SendHandlerAicarus:
                         )
                         if aicarus_event.user_info and aicarus_event.user_info.user_id:
                             target_user_id = aicarus_event.user_info.user_id
-                        if aicarus_event.conversation_info and aicarus_event.conversation_info.conversation_id:
-                            if aicarus_event.conversation_info.type == ConversationType.GROUP:
-                                target_group_id = aicarus_event.conversation_info.conversation_id
+                        if (
+                            aicarus_event.conversation_info
+                            and aicarus_event.conversation_info.conversation_id
+                        ):
+                            if (
+                                aicarus_event.conversation_info.type
+                                == ConversationType.GROUP
+                            ):
+                                target_group_id = (
+                                    aicarus_event.conversation_info.conversation_id
+                                )
 
                     napcat_segments_to_send = (
                         await self._aicarus_seglist_to_napcat_array(
@@ -200,7 +203,9 @@ class SendHandlerAicarus:
                         success = response and response.get("status") == "ok"
                         if not success:
                             error_message = (
-                                response.get("message", "Napcat API error for delete_msg")
+                                response.get(
+                                    "message", "Napcat API error for delete_msg"
+                                )
                                 if response
                                 else "No response from Napcat API"
                             )
@@ -225,7 +230,9 @@ class SendHandlerAicarus:
                         success = response and response.get("status") == "ok"
                         if not success:
                             error_message = (
-                                response.get("message", "Napcat API error for send_poke")
+                                response.get(
+                                    "message", "Napcat API error for send_poke"
+                                )
                                 if response
                                 else "No response from Napcat API"
                             )
@@ -247,7 +254,10 @@ class SendHandlerAicarus:
                         success = response and response.get("status") == "ok"
                         if not success:
                             error_message = (
-                                response.get("message", "Napcat API error for set_friend_add_request")
+                                response.get(
+                                    "message",
+                                    "Napcat API error for set_friend_add_request",
+                                )
                                 if response
                                 else "No response from Napcat API"
                             )
@@ -294,7 +304,10 @@ class SendHandlerAicarus:
                         success = response and response.get("status") == "ok"
                         if not success:
                             error_message = (
-                                response.get("message", "Napcat API error for set_group_add_request")
+                                response.get(
+                                    "message",
+                                    "Napcat API error for set_group_add_request",
+                                )
                                 if response
                                 else "No response from Napcat API"
                             )
@@ -367,9 +380,7 @@ class SendHandlerAicarus:
 
             # Skip message metadata segments as they are not sent to Napcat
             if aicarus_type == "message_metadata":
-                logger.debug(
-                    "AIcarus Adapter Send: Skipping message_metadata segment"
-                )
+                logger.debug("AIcarus Adapter Send: Skipping message_metadata segment")
                 continue
 
             if aicarus_type == "text":
@@ -502,9 +513,7 @@ class SendHandlerAicarus:
                 napcat_message_array.append(
                     {
                         "type": NapcatSegType.text,
-                        "data": {
-                            "text": f"[不支持的段类型: {aicarus_type}]"
-                        },
+                        "data": {"text": f"[不支持的段类型: {aicarus_type}]"},
                     }
                 )
                 continue
@@ -514,9 +523,7 @@ class SendHandlerAicarus:
         )
         return napcat_message_array
 
-    async def _send_to_napcat_api(
-        self, action: str, params: dict
-    ) -> Optional[dict]:
+    async def _send_to_napcat_api(self, action: str, params: dict) -> Optional[dict]:
         """发送API请求到Napcat，并等待响应"""
         if not self.server_connection:
             logger.error(
@@ -533,9 +540,7 @@ class SendHandlerAicarus:
         payload = {"action": action, "params": params, "echo": request_uuid}
         payload_str = json.dumps(payload)
 
-        logger.debug(
-            f"AIcarus Adapter Send: Sending request to Napcat: {payload_str}"
-        )
+        logger.debug(f"AIcarus Adapter Send: Sending request to Napcat: {payload_str}")
 
         try:
             await self.server_connection.send(payload_str)
