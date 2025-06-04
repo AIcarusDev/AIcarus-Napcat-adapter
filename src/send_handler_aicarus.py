@@ -219,31 +219,36 @@ class SendHandlerAicarus:
                     else:
                         error_message = "Missing target_message_id for action.message.recall."
 
-                elif specific_action_type_from_seg == "action.user.poke": # 假设协议定义了这样的动作类型
+                elif specific_action_type_from_seg == "action.user.poke":
                     target_uid_str = action_data_from_seg.get("target_user_id")
-                    # 如果动作数据中没有，尝试从事件的顶层 user_info 获取 (如果 poke 总是针对某个用户)
                     if not target_uid_str and aicarus_event.user_info:
                         target_uid_str = aicarus_event.user_info.user_id
                     
                     target_gid_str = action_data_from_seg.get("target_group_id")
-                    # 如果动作数据中没有，尝试从事件的顶层 conversation_info 获取
                     if not target_gid_str and aicarus_event.conversation_info and aicarus_event.conversation_info.type == ConversationType.GROUP:
                         target_gid_str = aicarus_event.conversation_info.conversation_id
 
                     if target_uid_str:
                         target_uid = int(target_uid_str)
+                        napcat_action_name = "" # 初始化为空
                         params_poke: Dict[str, Any] = {"user_id": target_uid}
-                        if target_gid_str: # 如果有群ID，则是群内戳一戳
+
+                        if target_gid_str: # 如果是群聊戳一戳
+                            napcat_action_name = "group_poke" # <--- 修改点1：使用正确的群聊戳一戳 action
                             params_poke["group_id"] = int(target_gid_str)
+                        else: # 如果是私聊戳一戳
+                            napcat_action_name = "friend_poke" # <--- 修改点2：使用正确的私聊戳一戳 action
+                            # 私聊戳一戳不需要 group_id，params_poke 中已正确只包含 user_id
                         
                         logger.debug(
-                            f"AIcarus Adapter Send: Executing poke with params: {params_poke}"
+                            f"AIcarus Adapter Send: Executing poke with action '{napcat_action_name}' and params: {params_poke}"
                         )
-                        response = await self._send_to_napcat_api("send_poke", params_poke)
+                        # 调用 Napcat API，传入修正后的 action 名称
+                        response = await self._send_to_napcat_api(napcat_action_name, params_poke) 
                         success = response and response.get("status") == "ok"
                         if not success:
                             error_message = (
-                                response.get("message", "Napcat API error for send_poke") # type: ignore
+                                response.get("message", f"Napcat API error for {napcat_action_name}") # type: ignore
                                 if response
                                 else "No response from Napcat API"
                             )

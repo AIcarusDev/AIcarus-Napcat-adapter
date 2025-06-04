@@ -291,7 +291,7 @@ class RecvHandlerAicarus:
 
         # 添加消息元数据 - 修复 SegBuilder 使用
         metadata_seg = Seg(
-            type="message.metadata",
+            type="message_metadata",
             data={
                 "message_id": napcat_message_id,
                 "font": str(napcat_event.get("font"))
