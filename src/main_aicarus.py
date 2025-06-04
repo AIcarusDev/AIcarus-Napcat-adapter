@@ -11,7 +11,7 @@ import websockets  # 确保导入
 from .logger import logger
 from .recv_handler_aicarus import RecvHandlerAicarus
 from .send_handler_aicarus import send_handler_aicarus
-from .config import get_config  # 使用 get_config()
+from .config import get_config, global_config  # 添加global_config
 from .aic_com_layer import (  # 从新的 v1.4.0 通信层导入
     aic_start_com,  # 这个函数现在会启动 core_connection_client.run_forever()
     aic_stop_com,  # 这个函数会调用 core_connection_client.stop_communication()
@@ -81,44 +81,66 @@ async def napcat_message_receiver(
 
                 # 提取必要信息
                 bot_id = str(napcat_event.get("self_id"))
-                group_id = str(napcat_event.get("group_id"))
+                group_id = napcat_event.get("group_id")
                 user_id = str(napcat_event.get("user_id"))
-
+                message_id = str(napcat_event.get("message_id", ""))
+                message_array = napcat_event.get("message", [])
+                
                 # 构造 v1.4.0 事件
                 conversation_info = None
                 if group_id:
+                    group_id = str(group_id)
                     conversation_info = ConversationInfo(
                         conversation_id=group_id,
                         type=ConversationType.GROUP,
-                        platform="napcat_qq",
+                        platform=global_config.core_platform_id,  # 使用global_config替代
                         name="",  # 可以后续获取
                     )
 
                 user_info = UserInfo(
-                    platform="napcat_qq",
+                    platform=global_config.core_platform_id,  # 使用global_config替代
                     user_id=user_id,
                     user_nickname="",  # 可以后续获取
                     user_cardname="",
                 )
 
-                # 构造事件内容 - 修复 SegBuilder 使用
+                # 构造事件内容 - 先添加元数据段，与普通消息结构一致
                 content_segs = [
                     Seg(
-                        type="message_sent",
+                        type="message.metadata",
                         data={
-                            "sent_message_id": str(napcat_event.get("message_id", "")),
-                            "raw_message": napcat_event.get("raw_message"),
-                            "message_content": napcat_event.get("message"),
+                            "message_id": message_id,
+                            "font": napcat_event.get("font", None),
                         },
                     )
                 ]
+                
+                # 转换消息段，与普通消息处理保持一致
+                if recv_handler_aicarus.server_connection and message_array:
+                    # 使用与普通消息相同的消息段转换逻辑
+                    message_segs = await recv_handler_aicarus._napcat_to_aicarus_seglist(
+                        message_array, napcat_event
+                    )
+                    if message_segs:
+                        content_segs.extend(message_segs)
+                    else:
+                        logger.warning(f"自发消息转换结果为空，消息ID: {message_id}")
+                
+                # 如果没有转换出消息段，添加一个默认文本
+                if len(content_segs) <= 1: # 只有元数据，没有实际内容
+                    content_segs.append(
+                        Seg(
+                            type="text",
+                            data={"text": napcat_event.get("raw_message", "[空消息]")},
+                        )
+                    )
 
-                # 构造完整事件并发送到 Core
+                # 构造完整事件并发送到 Core - 使用action类型
                 message_sent_event = Event(
-                    event_id=f"message_sent_{uuid.uuid4()}",
-                    event_type="notice.message.sent",
+                    event_id=f"action_message_sent_{uuid.uuid4()}",
+                    event_type="action.message.sent",  # 从notice改为action
                     time=napcat_event.get("time", time.time()) * 1000.0,
-                    platform="napcat_qq",
+                    platform=global_config.core_platform_id,  # 使用global_config替代
                     bot_id=bot_id,
                     user_info=user_info,
                     conversation_info=conversation_info,
