@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 import json
 import uuid
 import websockets
-
+import asyncio
 # 项目内部模块
 from .logger import logger
 
