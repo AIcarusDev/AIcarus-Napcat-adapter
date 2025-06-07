@@ -85,7 +85,7 @@ async def napcat_message_receiver(
                 user_id = str(napcat_event.get("user_id"))
                 message_id = str(napcat_event.get("message_id", ""))
                 message_array = napcat_event.get("message", [])
-                
+
                 # 构造 v1.4.0 事件
                 conversation_info = None
                 if group_id:
@@ -114,20 +114,22 @@ async def napcat_message_receiver(
                         },
                     )
                 ]
-                
+
                 # 转换消息段，与普通消息处理保持一致
                 if recv_handler_aicarus.server_connection and message_array:
                     # 使用与普通消息相同的消息段转换逻辑
-                    message_segs = await recv_handler_aicarus._napcat_to_aicarus_seglist(
-                        message_array, napcat_event
+                    message_segs = (
+                        await recv_handler_aicarus._napcat_to_aicarus_seglist(
+                            message_array, napcat_event
+                        )
                     )
                     if message_segs:
                         content_segs.extend(message_segs)
                     else:
                         logger.warning(f"自发消息转换结果为空，消息ID: {message_id}")
-                
+
                 # 如果没有转换出消息段，添加一个默认文本
-                if len(content_segs) <= 1: # 只有元数据，没有实际内容
+                if len(content_segs) <= 1:  # 只有元数据，没有实际内容
                     content_segs.append(
                         Seg(
                             type="text",
