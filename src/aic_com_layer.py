@@ -382,9 +382,12 @@ class CoreConnectionClient:
                 )
                 await asyncio.sleep(0.1)  # 短暂等待，确保事件发出
 
-                logger.info("正在关闭与 Core 的 WebSocket 连接...")
-                await self.websocket.close(code=1000, reason="Adapter shutting down")
-                logger.info("与 Core 的 WebSocket 连接已关闭。")
+                if self.websocket and self.websocket.open: # 再次检查 websocket 状态
+                    logger.info("正在关闭与 Core 的 WebSocket 连接...")
+                    await self.websocket.close(code=1000, reason="Adapter shutting down")
+                    logger.info("与 Core 的 WebSocket 连接已关闭。")
+                else:
+                    logger.info("WebSocket 连接在尝试显式关闭前已关闭或变为None。")
             except Exception as e_close:
                 logger.error(
                     f"关闭与 Core 的 WebSocket 连接或发送断开事件时发生错误: {e_close}",
