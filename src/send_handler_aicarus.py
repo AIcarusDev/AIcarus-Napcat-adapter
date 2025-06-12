@@ -11,14 +11,24 @@ from .logger import logger
 
 # 修正：从 .message_queue 导入 get_napcat_api_response
 from .message_queue import get_napcat_api_response
-
+from .recv_handler_aicarus import recv_handler_aicarus 
 # AIcarus 协议库 v1.4.0
 from aicarus_protocols import (
     Event,
     Seg,
     ConversationType,
+    EventBuilder,
+    SegBuilder,
+    UserInfo, # 确保导入 UserInfo
 )
 from .napcat_definitions import NapcatSegType  # Napcat 消息段类型定义
+
+# 导入 recv_handler_aicarus 以便调用其 dispatch_to_core 方法
+from .recv_handler_aicarus import recv_handler_aicarus 
+# 从适配器的配置模块导入配置信息
+from .config import global_config
+import time # 用于时间戳
+import json # 用于 raw_data (如果需要)
 
 
 class SendHandlerAicarus:
@@ -135,48 +145,110 @@ class SendHandlerAicarus:
                     if target_group_id:
                         napcat_action = "send_group_msg"
                         params = {
-                            "group_id": int(target_group_id),
+                            "group_id": target_group_id, # 直接使用字符串ID
                             "message": napcat_segments_to_send,
                         }
                         logger.debug(
                             f"AIcarus Adapter Send: Calling Napcat API '{napcat_action}' with params: {params}"
                         )
                         response = await self._send_to_napcat_api(napcat_action, params)
+                        
                         if response and response.get("status") == "ok":
                             success = True
-                            details_for_response["sent_message_id"] = str(
-                                response.get("data", {}).get("message_id", "")
+                            sent_message_id = str(response.get("data", {}).get("message_id", ""))
+                            details_for_response["sent_message_id"] = sent_message_id
+                            
+                            logger.info(f"消息发送成功，平台消息ID: {sent_message_id}。准备构造自我上报事件...")
+
+                            # 构造机器人自身的用户信息
+                            # 尝试从全局配置获取昵称，否则使用默认值
+                            if hasattr(global_config, "bot_nickname") and global_config.bot_nickname:
+                                bot_nickname_from_config = global_config.bot_nickname
+                            else:
+                                bot_nickname_from_config = "AIcarus Bot" # 默认值
+                                logger.warning(
+                                    f"无法从配置 global_config.bot_nickname 中获取有效的机器人昵称，将使用默认值 '{bot_nickname_from_config}'。"
+                                )
+                            
+                            bot_user_info = UserInfo(
+                                platform=aicarus_event.platform,
+                                user_id=aicarus_event.bot_id, # 使用原始事件中的 bot_id
+                                user_nickname= bot_nickname_from_config
                             )
-                        else:
+
+                            # EventBuilder.create_message_event 会自动处理消息ID的包装
+                            # 我们需要确保 segments_to_send_aicarus 是 Seg 对象的列表
+                            
+                            self_report_event = EventBuilder.create_message_event(
+                                event_type=f"message.{'group' if target_group_id else 'private'}.normal",
+                                platform=aicarus_event.platform,
+                                bot_id=aicarus_event.bot_id,
+                                message_id=sent_message_id, # Napcat 返回的实际消息ID
+                                content_segs=segments_to_send_aicarus, # 已发送的内容 Seg 列表
+                                user_info=bot_user_info,
+                                conversation_info=aicarus_event.conversation_info,
+                                time_ms=int(time.time() * 1000) # 添加当前时间戳
+                            )
+                            # 关键：覆盖 event_id 为原始 Core Action Event ID
+                            self_report_event.event_id = aicarus_event.event_id 
+
+                            await recv_handler_aicarus.dispatch_to_core(self_report_event)
+                            logger.info(f"已将ID为 {aicarus_event.event_id} 的自我上报消息事件发回核心。")
+
+                        else: # API调用失败的逻辑
+                            success = False
                             error_message = (
-                                response.get(
-                                    "message", "Napcat API error for send_group_msg"
-                                )  # type: ignore
-                                if response
-                                else "No response from Napcat API"
+                                response.get("message", "Napcat API error for send_group_msg") if response else "No response from Napcat API"
                             )
                     elif target_user_id:
                         napcat_action = "send_private_msg"
                         params = {
-                            "user_id": int(target_user_id),
+                            "user_id": target_user_id, # 直接使用字符串ID
                             "message": napcat_segments_to_send,
                         }
                         logger.debug(
                             f"AIcarus Adapter Send: Calling Napcat API '{napcat_action}' with params: {params}"
                         )
                         response = await self._send_to_napcat_api(napcat_action, params)
+
                         if response and response.get("status") == "ok":
                             success = True
-                            details_for_response["sent_message_id"] = str(
-                                response.get("data", {}).get("message_id", "")
+                            sent_message_id = str(response.get("data", {}).get("message_id", ""))
+                            details_for_response["sent_message_id"] = sent_message_id
+
+                            logger.info(f"消息发送成功，平台消息ID: {sent_message_id}。准备构造自我上报事件...")
+                            
+                            if hasattr(global_config, "bot_nickname") and global_config.bot_nickname:
+                                bot_nickname_from_config = global_config.bot_nickname
+                            else:
+                                bot_nickname_from_config = "AIcarus Bot" # 默认值
+                                # logger 已在上面的分支中记录过，这里不再重复
+                            
+                            bot_user_info = UserInfo(
+                                platform=aicarus_event.platform,
+                                user_id=aicarus_event.bot_id,
+                                user_nickname=bot_nickname_from_config
                             )
-                        else:
+                            
+                            self_report_event = EventBuilder.create_message_event(
+                                event_type=f"message.{'group' if target_group_id else 'private'}.normal",
+                                platform=aicarus_event.platform,
+                                bot_id=aicarus_event.bot_id,
+                                message_id=sent_message_id,
+                                content_segs=segments_to_send_aicarus,
+                                user_info=bot_user_info,
+                                conversation_info=aicarus_event.conversation_info,
+                                time_ms=int(time.time() * 1000)
+                            )
+                            self_report_event.event_id = aicarus_event.event_id
+
+                            await recv_handler_aicarus.dispatch_to_core(self_report_event)
+                            logger.info(f"已将ID为 {aicarus_event.event_id} 的自我上报消息事件发回核心。")
+
+                        else: # API调用失败的逻辑
+                            success = False
                             error_message = (
-                                response.get(
-                                    "message", "Napcat API error for send_private_msg"
-                                )  # type: ignore
-                                if response
-                                else "No response from Napcat API"
+                                response.get("message", "Napcat API error for send_private_msg") if response else "No response from Napcat API"
                             )
                     else:
                         logger.error(

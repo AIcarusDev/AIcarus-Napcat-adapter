@@ -9,7 +9,8 @@ import websockets  # 确保导入
 
 # 项目内部模块
 from .logger import logger
-from .recv_handler_aicarus import RecvHandlerAicarus
+# 直接导入 recv_handler_aicarus 实例，而不是类
+from .recv_handler_aicarus import recv_handler_aicarus 
 from .send_handler_aicarus import send_handler_aicarus
 from .config import get_config, global_config  # 添加global_config
 from .aic_com_layer import (  # 从新的 v1.4.0 通信层导入
@@ -35,8 +36,7 @@ from aicarus_protocols import (
     PROTOCOL_VERSION,
 )
 
-# 创建处理器实例
-recv_handler_aicarus = RecvHandlerAicarus()
+# recv_handler_aicarus 实例已在其模块中创建并导入，此处无需再创建
 
 
 async def napcat_message_receiver(
@@ -75,10 +75,23 @@ async def napcat_message_receiver(
             elif napcat_event.get("echo"):
                 await put_napcat_api_response(napcat_event)  # 处理 Napcat API 响应
             elif post_type == "message_sent":
-                logger.debug(
-                    f"AIcarus Adapter: Processing message_sent event: {napcat_event}"
-                )
+                # 首先检查这条 message_sent 是否是机器人自己发出的消息的回执
+                # 如果是，并且我们的 send_handler 已经通过“自我上报”机制发送了更合适的事件，
+                # 那么这里就应该忽略这个原始的 message_sent 事件，以避免重复。
+                # recv_handler_aicarus.napcat_bot_id 应该在连接时被设置
+                current_bot_id = recv_handler_aicarus.napcat_bot_id
+                if current_bot_id and str(napcat_event.get("self_id")) == current_bot_id:
+                    logger.info(
+                        f"AIcarus Adapter: Ignoring self-generated 'message_sent' event (msg_id: {napcat_event.get('message_id')}) "
+                        "as it's expected to be handled by send_handler's self-reporting mechanism."
+                    )
+                    continue # 跳过对此事件的处理
 
+                # 如果不是机器人自己的，或者 napcat_bot_id 未设置（理论上不应该），则按原逻辑处理
+                logger.debug(
+                    f"AIcarus Adapter: Processing 'message_sent' event from other source or bot_id not confirmed: {napcat_event}"
+                )
+                
                 # 提取必要信息
                 bot_id = str(napcat_event.get("self_id"))
                 group_id = napcat_event.get("group_id")

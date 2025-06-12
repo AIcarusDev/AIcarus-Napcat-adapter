@@ -44,6 +44,7 @@ class RecvHandlerAicarus:
     napcat_bot_id: Optional[str] = None
 
     def __init__(self):
+        self.maibot_router = None # 明确初始化 maibot_router
         cfg = global_config
         self.interval = cfg.napcat_heartbeat_interval_seconds
 
@@ -852,3 +853,6 @@ class RecvHandlerAicarus:
         finally:
             self.server_connection = None
             logger.info("AIcarus Adapter: Cleaned up Napcat connection")
+
+# 全局实例，以便其他模块导入和使用
+recv_handler_aicarus = RecvHandlerAicarus()
