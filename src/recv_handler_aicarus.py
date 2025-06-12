@@ -9,7 +9,7 @@ import websockets
 
 # 项目内部模块
 from .logger import logger
-from .config import global_config
+from .config import global_config, get_config # Import get_config
 from .qq_emoji_list import qq_face
 
 # 修正 utils.py 的导入
@@ -45,19 +45,47 @@ class RecvHandlerAicarus:
 
     def __init__(self):
         self.maibot_router = None # 明确初始化 maibot_router
-        cfg = global_config
+        cfg = global_config # cfg is an instance of AdapterConfigData
         self.interval = cfg.napcat_heartbeat_interval_seconds
 
     async def _get_bot_id(self) -> Optional[str]:
-        """获取并缓存机器人自身的ID"""
-        if self.napcat_bot_id:
+        """获取并缓存机器人自身的ID，优先使用配置中的force_self_id，否则尝试API获取并重试。"""
+        # 检查配置中是否强制指定了 Bot ID
+        cfg = get_config() # Ensure we have the latest config instance
+        if cfg.force_self_id:
+            forced_id = str(cfg.force_self_id).strip()
+            if forced_id:
+                self.napcat_bot_id = forced_id
+                logger.info(f"已从配置中强制指定 Bot ID: {self.napcat_bot_id}")
+                return self.napcat_bot_id
+
+        # 如果配置中未强制指定，则继续尝试从API获取
+        if self.napcat_bot_id: # 可能在之前的调用中（例如 connect 事件）被设置
             return self.napcat_bot_id
 
-        if self.server_connection:
-            self_info = await napcat_get_self_info(self.server_connection)
+        if not self.server_connection:
+            logger.warning("无法获取 Bot ID：WebSocket 连接不可用。")
+            return None
+
+        max_retries = 3
+        retry_delay_seconds = 5 # 每次重试间隔5秒
+
+        for attempt in range(max_retries):
+            logger.info(f"尝试获取 Bot ID (第 {attempt + 1}/{max_retries} 次)...")
+            # napcat_get_self_info 内部调用 _call_napcat_api, 其默认超时为15秒
+            self_info = await napcat_get_self_info(self.server_connection) 
             if self_info and self_info.get("user_id"):
                 self.napcat_bot_id = str(self_info.get("user_id"))
+                logger.info(f"成功获取 Bot ID: {self.napcat_bot_id}")
                 return self.napcat_bot_id
+            
+            logger.warning(f"获取 Bot ID 失败 (第 {attempt + 1}/{max_retries} 次)。API返回: {self_info}")
+            if attempt < max_retries - 1:
+                logger.info(f"将在 {retry_delay_seconds} 秒后重试...")
+                await asyncio.sleep(retry_delay_seconds)
+            else:
+                logger.error(f"已达到最大重试次数 ({max_retries})，仍未能获取 Bot ID。")
+        
         return None
 
     async def _napcat_to_aicarus_userinfo(

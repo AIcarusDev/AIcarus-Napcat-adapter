@@ -142,14 +142,27 @@ class SendHandlerAicarus:
                     error_message = "No valid segments to send after conversion."
 
                 if not error_message:  # 只有在没有预设错误的情况下才继续
-                    if target_group_id:
+                    # --- Add check for napcat_bot_id before attempting to send ---
+                    if not recv_handler_aicarus.napcat_bot_id:
+                        logger.error("AIcarus Adapter Send: Cannot send message, Bot ID is not identified (napcat_bot_id is None).")
+                        error_message = "Bot ID not identified, cannot send message."
+                        success = False
+                    # --- End check ---
+                    elif target_group_id: # Proceed only if bot_id is known
                         napcat_action = "send_group_msg"
-                        params = {
-                            "group_id": target_group_id, # 直接使用字符串ID
-                            "message": napcat_segments_to_send,
-                        }
-                        logger.debug(
-                            f"AIcarus Adapter Send: Calling Napcat API '{napcat_action}' with params: {params}"
+                        try:
+                            params = {
+                                "group_id": int(target_group_id), # 转换为 int
+                                "message": napcat_segments_to_send,
+                            }
+                        except ValueError:
+                            logger.error(f"AIcarus Adapter Send: Invalid group_id format, cannot convert to int: {target_group_id}")
+                            error_message = f"Invalid group_id format: {target_group_id}"
+                            params = None # Mark params as invalid
+                        
+                        if params: # Only proceed if params are valid
+                            logger.debug(
+                                f"AIcarus Adapter Send: Calling Napcat API '{napcat_action}' with params: {params}"
                         )
                         response = await self._send_to_napcat_api(napcat_action, params)
                         
@@ -202,12 +215,19 @@ class SendHandlerAicarus:
                             )
                     elif target_user_id:
                         napcat_action = "send_private_msg"
-                        params = {
-                            "user_id": target_user_id, # 直接使用字符串ID
-                            "message": napcat_segments_to_send,
-                        }
-                        logger.debug(
-                            f"AIcarus Adapter Send: Calling Napcat API '{napcat_action}' with params: {params}"
+                        try:
+                            params = {
+                                "user_id": int(target_user_id), # 转换为 int
+                                "message": napcat_segments_to_send,
+                            }
+                        except ValueError:
+                            logger.error(f"AIcarus Adapter Send: Invalid user_id format, cannot convert to int: {target_user_id}")
+                            error_message = f"Invalid user_id format: {target_user_id}"
+                            params = None # Mark params as invalid
+
+                        if params: # Only proceed if params are valid
+                            logger.debug(
+                                f"AIcarus Adapter Send: Calling Napcat API '{napcat_action}' with params: {params}"
                         )
                         response = await self._send_to_napcat_api(napcat_action, params)
 

@@ -1,7 +1,7 @@
 # AIcarus Napcat Adapter - 配置文件模板
 # 版本号用于跟踪配置结构的变化。
 # 当此模板的结构发生重大更改时，请务必更新此版本号。
-config_version = "1.0.1" # 初始版本号
+config_version = "1.0.0" # 初始版本号
 
 [adapter_server]
 host = "127.0.0.1" # Adapter 监听来自 Napcat 客户端连接的 IP 地址。 '0.0.0.0' 表示监听所有可用网络接口。
@@ -13,9 +13,6 @@ platform_id = "napcat_qq" # 此 Adapter 实例在 Core 处注册的唯一标识�
 
 [bot_settings]
 nickname = "" # 可选：机器人的昵称。如果不需要，请将其值保留为空字符串 "" 或直接删除此行。
-# 强制指定机器人自身的QQ号。如果设置了此项，Adapter将使用此ID，不再尝试通过API从Napcat客户端获取。
-# 仅当自动获取 (通过 get_login_info API) 持续失败时使用。留空则表示自动获取。
-force_self_id = "" 
 napcat_heartbeat_interval_seconds = 30 # Adapter 与 Napcat 客户端之间心跳检查的间隔秒数 (如果 Adapter 需要实现此逻辑)。
 
 # [another_section] # 示例：未来可能添加的新配置段
