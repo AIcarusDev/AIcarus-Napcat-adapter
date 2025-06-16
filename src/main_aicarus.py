@@ -3,16 +3,15 @@
 import asyncio
 import sys
 import json
-import time
-import uuid
 import websockets  # 确保导入
 
 # 项目内部模块
 from .logger import logger
+
 # 直接导入 recv_handler_aicarus 实例，而不是类
-from .recv_handler_aicarus import recv_handler_aicarus 
+from .recv_handler_aicarus import recv_handler_aicarus
 from .send_handler_aicarus import send_handler_aicarus
-from .config import get_config, global_config  # 添加global_config
+from .config import get_config  # 添加global_config
 from .aic_com_layer import (  # 从新的 v1.4.0 通信层导入
     aic_start_com,  # 这个函数现在会启动 core_connection_client.run_forever()
     aic_stop_com,  # 这个函数会调用 core_connection_client.stop_communication()
@@ -28,11 +27,6 @@ from .message_queue import (
 
 # v1.4.0 协议库
 from aicarus_protocols import (
-    Event,
-    UserInfo,
-    ConversationInfo,
-    Seg,
-    ConversationType,
     PROTOCOL_VERSION,
 )
 
@@ -56,11 +50,15 @@ async def napcat_message_receiver(
 
     try:
         async for raw_message_str in server_connection:
-            logger.debug(f"AIcarus Adapter: Raw from Napcat: {raw_message_str[:120]}...")
+            logger.debug(
+                f"AIcarus Adapter: Raw from Napcat: {raw_message_str[:120]}..."
+            )
             try:
                 napcat_event: dict = json.loads(raw_message_str)
             except json.JSONDecodeError:
-                logger.error(f"AIcarus Adapter: Failed to decode JSON from Napcat: {raw_message_str}")
+                logger.error(
+                    f"AIcarus Adapter: Failed to decode JSON from Napcat: {raw_message_str}"
+                )
                 continue
 
             post_type = napcat_event.get("post_type")
@@ -74,14 +72,23 @@ async def napcat_message_receiver(
                 await put_napcat_api_response(napcat_event)
             # 对于其他所有类型的 post_type (包括 message_sent)，我们直接忽略，让它们随风而去~
             else:
-                logger.debug(f"AIcarus Adapter: Ignoring Napcat event with post_type '{post_type}'.")
+                logger.debug(
+                    f"AIcarus Adapter: Ignoring Napcat event with post_type '{post_type}'."
+                )
 
     except websockets.exceptions.ConnectionClosedOK:
-        logger.info(f"Napcat client {server_connection.remote_address} disconnected gracefully.")
+        logger.info(
+            f"Napcat client {server_connection.remote_address} disconnected gracefully."
+        )
     except websockets.exceptions.ConnectionClosedError as e:
-        logger.warning(f"Napcat client {server_connection.remote_address} connection closed with error: {e}")
+        logger.warning(
+            f"Napcat client {server_connection.remote_address} connection closed with error: {e}"
+        )
     except Exception as e:
-        logger.error(f"处理 Napcat 连接时发生未知错误 ({server_connection.remote_address}): {e}", exc_info=True)
+        logger.error(
+            f"处理 Napcat 连接时发生未知错误 ({server_connection.remote_address}): {e}",
+            exc_info=True,
+        )
     finally:
         logger.info(f"Napcat 客户端连接已结束: {server_connection.remote_address}")
         if recv_handler_aicarus.server_connection == server_connection:

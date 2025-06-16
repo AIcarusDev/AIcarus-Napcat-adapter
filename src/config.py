@@ -54,7 +54,7 @@ class AdapterConfigData:
     core_connection_url: str = "ws://127.0.0.1:8000/ws"
     core_platform_id: str = "napcat_adapter_default_instance"
     bot_nickname: str = ""
-    force_self_id: str = "" # 新增: 强制指定的机器人QQ号
+    force_self_id: str = ""  # 新增: 强制指定的机器人QQ号
     napcat_heartbeat_interval_seconds: int = 30
 
     def __init__(
@@ -81,7 +81,9 @@ class AdapterConfigData:
 
         bot_settings_data = data.get("bot_settings", {})
         self.bot_nickname = str(bot_settings_data.get("nickname", self.bot_nickname))
-        self.force_self_id = str(bot_settings_data.get("force_self_id", self.force_self_id)) # 读取 force_self_id
+        self.force_self_id = str(
+            bot_settings_data.get("force_self_id", self.force_self_id)
+        )  # 读取 force_self_id
         self.napcat_heartbeat_interval_seconds = int(
             bot_settings_data.get(
                 "napcat_heartbeat_interval_seconds",
@@ -315,8 +317,10 @@ def load_and_get_config() -> AdapterConfigData:
             logger.info(f"  - Bot Nickname: '{_global_config_instance.bot_nickname}'")
         else:
             logger.info("  - Bot Nickname: 未设置")
-        if _global_config_instance.force_self_id: # 新增日志
-            logger.info(f"  - Forced Bot Self ID: '{_global_config_instance.force_self_id}'")
+        if _global_config_instance.force_self_id:  # 新增日志
+            logger.info(
+                f"  - Forced Bot Self ID: '{_global_config_instance.force_self_id}'"
+            )
         else:
             logger.info("  - Forced Bot Self ID: 未设置 (将自动获取)")
 
@@ -361,7 +365,7 @@ if __name__ == "__main__":
             logger.info(f"Bot 昵称: '{cfg_instance.bot_nickname}'")
         else:
             logger.info("Bot 昵称: 未设置")
-        if cfg_instance.force_self_id: # 新增测试日志
+        if cfg_instance.force_self_id:  # 新增测试日志
             logger.info(f"强制 Bot ID: '{cfg_instance.force_self_id}'")
         else:
             logger.info("强制 Bot ID: 未设置")
