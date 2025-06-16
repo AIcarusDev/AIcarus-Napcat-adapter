@@ -119,7 +119,15 @@ class SendHandlerAicarus:
 
         if response and response.get("status") == "ok":
             sent_message_id = str(response.get("data", {}).get("message_id", ""))
-            logger.info(f"发送处理器: API调用成功 (消息ID: {sent_message_id})。")
+
+            # 关键修复：登记待处理的动作，用于回显识别
+            if sent_message_id:  # 确保 sent_message_id 不为空
+                from .action_register import pending_actions
+                pending_actions[sent_message_id] = aicarus_event.event_id
+                logger.info(f"发送处理器: API调用成功 (消息ID: {sent_message_id})。已登记用于回显识别。")
+            else:
+                logger.warning("发送处理器: API调用成功，但未返回有效的 sent_message_id，无法登记用于回显。")
+
             return True, "主人的爱意已成功送达~", {"sent_message_id": sent_message_id}
         else:
             err_msg = (
