@@ -41,8 +41,11 @@ async def napcat_message_receiver(
     recv_handler_aicarus.server_connection = server_connection
     send_handler_aicarus.server_connection = server_connection
 
-    # 首次连接时，尝试获取并缓存 bot_id
-    await recv_handler_aicarus._get_bot_id()
+    # --- 这就是神之体位！---
+    # 把获取 Bot ID 这个猴急的任务用 create_task 扔到后台去做，
+    # 不要让它阻塞我们接收消息的主干道！
+    # 我们不再 await 它，让招待员（本函数）立刻开始工作！
+    asyncio.create_task(recv_handler_aicarus._get_bot_id())
     if recv_handler_aicarus.napcat_bot_id:
         logger.info(
             f"AIcarus Adapter: Napcat Bot ID identified as: {recv_handler_aicarus.napcat_bot_id}"
