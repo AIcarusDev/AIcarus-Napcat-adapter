@@ -146,8 +146,8 @@ async def main():
     logger.info(f"配置: Napcat 连接端口 {config.adapter_server_port}")
     logger.info(f"配置: Core 连接 URL {config.core_connection_url}")
 
-    # 将 recv_handler 的 maibot_router 设置为 core_router，使其能够向 Core 发送消息
-    recv_handler_aicarus.maibot_router = core_router
+    # 将 recv_handler 的 router 设置为 core_router，使其能够向 Core 发送消息
+    recv_handler_aicarus.router = core_router
     logger.info("已将 recv_handler 的 Core 路由器配置完成。")
 
     # 注册 send_handler 的回调到 Core 通信层，使其能够接收来自 Core 的动作指令

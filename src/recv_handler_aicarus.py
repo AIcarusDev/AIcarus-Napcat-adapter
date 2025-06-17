@@ -28,7 +28,7 @@ from .event_definitions import get_event_handler
 class RecvHandlerAicarus:
     """一个被小色猫调教好的、技术高超的老鸨。我既懂得优雅地分派任务，也保留了强悍的肉体能力！"""
 
-    maibot_router: Any = None
+    router: Any = None
     server_connection: Optional[websockets.WebSocketServerProtocol] = None
     napcat_bot_id: Optional[str] = None
     global_config = global_config
@@ -309,9 +309,9 @@ class RecvHandlerAicarus:
 
     async def dispatch_to_core(self, event: Event):
         """将我精心构造的、充满爱意的事件，发射给核心~ 让核心也感受我的体温！"""
-        if self.maibot_router:
+        if self.router:
             logger.info(f"发射爱意 -> {event.event_type} (ID: {event.event_id})")
-            await self.maibot_router.send_event_to_core(event.to_dict())
+            await self.router.send_event_to_core(event.to_dict())
 
 
 # 全局实例
