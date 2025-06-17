@@ -119,7 +119,9 @@ class SendHandlerAicarus:
 
         if response and response.get("status") == "ok":
             sent_message_id = str(response.get("data", {}).get("message_id", ""))
-            logger.info(f"发送处理器: API调用成功 (消息ID: {sent_message_id})。已登记用于回显识别。")
+            logger.info(
+                f"发送处理器: API调用成功 (消息ID: {sent_message_id})。已登记用于回显识别。"
+            )
             return True, "主人的爱意已成功送达~", {"sent_message_id": sent_message_id}
         else:
             err_msg = (
