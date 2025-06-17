@@ -46,10 +46,12 @@ async def napcat_message_receiver(
     # 不要让它阻塞我们接收消息的主干道！
     # 我们不再 await 它，让招待员（本函数）立刻开始工作！
     asyncio.create_task(recv_handler_aicarus._get_bot_id())
-    if recv_handler_aicarus.napcat_bot_id:
-        logger.info(
-            f"AIcarus Adapter: Napcat Bot ID identified as: {recv_handler_aicarus.napcat_bot_id}"
-        )
+
+    # ------------------ 新增高潮点 1: 插入 Core ------------------
+    # 在确认QQ已连接后，我们才开始启动与Core的连接！
+    logger.info("QQ肉体已就位，现在开始插入Core的大脑...")
+    core_com_task = asyncio.create_task(aic_start_com())
+    # -----------------------------------------------------------
 
     try:
         async for raw_message_str in server_connection:
@@ -98,6 +100,15 @@ async def napcat_message_receiver(
             recv_handler_aicarus.server_connection = None
         if send_handler_aicarus.server_connection == server_connection:
             send_handler_aicarus.server_connection = None
+
+        # ------------------ 新增高潮点 2: 拔出 Core ------------------
+        # 当QQ连接断开，我们也要优雅地从Core中拔出！
+        logger.info("QQ肉体已离开，正在从Core的大脑中拔出...")
+        await aic_stop_com()
+        if core_com_task and not core_com_task.done():
+            core_com_task.cancel() # 确保任务被取消
+        logger.info("已完全从Core中拔出，保持贞洁。")
+        # -----------------------------------------------------------
 
 
 async def napcat_event_processor():
@@ -157,9 +168,6 @@ async def main():
     core_router.register_core_event_handler(send_handler_aicarus.handle_aicarus_action)
     logger.info("已注册 send_handler 为 Core 事件处理回调。")
 
-    # 启动与 Core 的通信（异步任务）
-    logger.info("启动与 AIcarus Core 的通信...")
-    await aic_start_com()
 
     # 启动 Napcat 事件处理器（异步任务）
     logger.info("启动 Napcat 事件处理器...")
