@@ -157,6 +157,19 @@ class RecvHandlerAicarus:
             name=group_name,
         )
 
+    async def _napcat_to_aicarus_private_conversationinfo(
+        self, napcat_user_info: UserInfo
+    ) -> Optional[ConversationInfo]:
+        """把私聊的用户，也包装成一个独立的、私密的会话~"""
+        if not napcat_user_info or not napcat_user_info.user_id:
+            return None
+        return ConversationInfo(
+            platform=self.global_config.core_platform_id,
+            conversation_id=napcat_user_info.user_id,
+            type=ConversationType.PRIVATE,
+            name=napcat_user_info.user_nickname,
+        )
+
     async def _napcat_to_aicarus_seglist(
         self, napcat_segments: List[Dict[str, Any]], napcat_event: dict
     ) -> List[Seg]:

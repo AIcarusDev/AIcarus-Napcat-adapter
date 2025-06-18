@@ -12,6 +12,7 @@ from aicarus_protocols import (
     ConversationInfo,
     Seg,
     EventBuilder,
+    ConversationType,
 )
 from .napcat_definitions import MetaEventType, MessageType, NoticeType
 from .logger import logger
@@ -54,21 +55,29 @@ class MessageEventFactory(BaseEventFactory):
         aicarus_user_info: Optional[UserInfo] = None
 
         if napcat_message_type == MessageType.private:
+            # 对于私聊，永远不应该传入 group_id
             aicarus_user_info = await recv_handler._napcat_to_aicarus_userinfo(
-                napcat_sender
+                napcat_sender, group_id=None
             )
             event_type = "message.private.other"
             if napcat_sub_type == MessageType.Private.friend:
                 event_type = "message.private.friend"
+                if aicarus_user_info:
+                    aicarus_conversation_info = await recv_handler._napcat_to_aicarus_private_conversationinfo(
+                        aicarus_user_info
+                    )
             elif napcat_sub_type == MessageType.Private.group:
                 event_type = "message.private.temporary"
-                temp_group_id = str(napcat_event.get("group_id", ""))
-                if temp_group_id:
+                # 临时会话本质上是在一个群里，所以它有 group_id
+                temp_group_id = str(napcat_event.get("group_id", "")).strip()
+                if temp_group_id and temp_group_id != "0":
                     aicarus_conversation_info = (
                         await recv_handler._napcat_to_aicarus_conversationinfo(
                             temp_group_id
                         )
                     )
+                else:
+                    logger.warning(f"临时会话事件 {napcat_message_id} 缺少有效的 group_id。")
 
         elif napcat_message_type == MessageType.group:
             group_id = str(napcat_event.get("group_id", ""))
@@ -136,15 +145,21 @@ class NoticeEventFactory(BaseEventFactory):
         user_info: Optional[UserInfo] = None
         conversation_info: Optional[ConversationInfo] = None
 
-        group_id = str(napcat_event.get("group_id", ""))
-        user_id = str(napcat_event.get("user_id", ""))
-        operator_id = str(napcat_event.get("operator_id", ""))
+        group_id_str = str(napcat_event.get("group_id", "")).strip()
+        group_id = group_id_str if group_id_str and group_id_str != "0" else None
+        
+        user_id_str = str(napcat_event.get("user_id", "")).strip()
+        user_id = user_id_str if user_id_str and user_id_str != "0" else None
+
+        operator_id_str = str(napcat_event.get("operator_id", "")).strip()
+        operator_id = operator_id_str if operator_id_str and operator_id_str != "0" else None
 
         if group_id:
             conversation_info = await recv_handler._napcat_to_aicarus_conversationinfo(
                 group_id
             )
         if user_id:  # 事件主体用户
+            # 只有当 group_id 真实存在时，才将其传入以获取群成员信息
             user_info = await recv_handler._napcat_to_aicarus_userinfo(
                 {"user_id": user_id}, group_id=group_id
             )
