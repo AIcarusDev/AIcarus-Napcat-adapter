@@ -106,7 +106,7 @@ async def napcat_message_receiver(
         logger.info("QQ肉体已离开，正在从Core的大脑中拔出...")
         await aic_stop_com()
         if core_com_task and not core_com_task.done():
-            core_com_task.cancel() # 确保任务被取消
+            core_com_task.cancel()  # 确保任务被取消
         logger.info("已完全从Core中拔出，保持贞洁。")
         # -----------------------------------------------------------
 
@@ -167,7 +167,6 @@ async def main():
     # 注册 send_handler 的回调到 Core 通信层，使其能够接收来自 Core 的动作指令
     core_router.register_core_event_handler(send_handler_aicarus.handle_aicarus_action)
     logger.info("已注册 send_handler 为 Core 事件处理回调。")
-
 
     # 启动 Napcat 事件处理器（异步任务）
     logger.info("启动 Napcat 事件处理器...")

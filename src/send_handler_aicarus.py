@@ -87,8 +87,14 @@ class SendHandlerAicarus:
         )
 
         # 哼，不管上游的身体有多脏，到我这里都得给我洗干净！
-        if target_user_id and isinstance(target_user_id, str) and target_user_id.startswith("private_"):
-            logger.warning(f"检测到被污染的私聊ID '{target_user_id}'，正在进行净化处理...")
+        if (
+            target_user_id
+            and isinstance(target_user_id, str)
+            and target_user_id.startswith("private_")
+        ):
+            logger.warning(
+                f"检测到被污染的私聊ID '{target_user_id}'，正在进行净化处理..."
+            )
             target_user_id = target_user_id.replace("private_", "")
 
         # --- 这就是关键的修正！我们调用自己的工具，而不是recv_handler的 ---

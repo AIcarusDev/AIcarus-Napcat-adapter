@@ -12,7 +12,6 @@ from aicarus_protocols import (
     ConversationInfo,
     Seg,
     EventBuilder,
-    ConversationType,
 )
 from .napcat_definitions import MetaEventType, MessageType, NoticeType
 from .logger import logger
@@ -63,8 +62,10 @@ class MessageEventFactory(BaseEventFactory):
             if napcat_sub_type == MessageType.Private.friend:
                 event_type = "message.private.friend"
                 if aicarus_user_info:
-                    aicarus_conversation_info = await recv_handler._napcat_to_aicarus_private_conversationinfo(
-                        aicarus_user_info
+                    aicarus_conversation_info = (
+                        await recv_handler._napcat_to_aicarus_private_conversationinfo(
+                            aicarus_user_info
+                        )
                     )
             elif napcat_sub_type == MessageType.Private.group:
                 event_type = "message.private.temporary"
@@ -77,7 +78,9 @@ class MessageEventFactory(BaseEventFactory):
                         )
                     )
                 else:
-                    logger.warning(f"临时会话事件 {napcat_message_id} 缺少有效的 group_id。")
+                    logger.warning(
+                        f"临时会话事件 {napcat_message_id} 缺少有效的 group_id。"
+                    )
 
         elif napcat_message_type == MessageType.group:
             group_id = str(napcat_event.get("group_id", ""))
@@ -147,12 +150,14 @@ class NoticeEventFactory(BaseEventFactory):
 
         group_id_str = str(napcat_event.get("group_id", "")).strip()
         group_id = group_id_str if group_id_str and group_id_str != "0" else None
-        
+
         user_id_str = str(napcat_event.get("user_id", "")).strip()
         user_id = user_id_str if user_id_str and user_id_str != "0" else None
 
         operator_id_str = str(napcat_event.get("operator_id", "")).strip()
-        operator_id = operator_id_str if operator_id_str and operator_id_str != "0" else None
+        operator_id = (
+            operator_id_str if operator_id_str and operator_id_str != "0" else None
+        )
 
         if group_id:
             conversation_info = await recv_handler._napcat_to_aicarus_conversationinfo(
