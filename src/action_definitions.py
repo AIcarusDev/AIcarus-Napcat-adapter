@@ -4,8 +4,9 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING
 
 # AIcarus & Napcat 相关导入
-from aicarus_protocols import Event, Seg, ConversationType
+from aicarus_protocols import Event, Seg, ConversationType, UserInfo
 from .logger import logger
+from .utils import napcat_get_self_info, napcat_get_member_info
 
 if TYPE_CHECKING:
     from .send_handler_aicarus import SendHandlerAicarus
@@ -210,6 +211,59 @@ class HandleGroupRequestHandler(BaseActionHandler):
             return False, f"处理群请求时出现异常: {e}", {}
 
 
+class GetBotProfileHandler(BaseActionHandler):
+    """处理获取机器人自身信息的请求，让我看看我自己长啥样~"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        action_data = action_seg.data
+        group_id = action_data.get("group_id")
+
+        if not send_handler.server_connection:
+            return False, "与 Napcat 的连接已断开", {}
+
+        try:
+            # 1. 获取机器人自身的全局信息
+            self_info = await napcat_get_self_info(send_handler.server_connection)
+            if not self_info or not self_info.get("user_id"):
+                return False, "获取机器人自身信息失败", {}
+
+            bot_id = str(self_info["user_id"])
+            bot_nickname = self_info.get("nickname", "")
+
+            # 准备返回给 Core 的信息字典
+            profile_data = {
+                "user_id": bot_id,
+                "nickname": bot_nickname,
+                "card": bot_nickname,  # 默认情况下，群名片等于昵称
+                "title": "",
+                "role": "member",  # 默认是成员
+            }
+
+            # 2. 如果提供了 group_id，则获取在特定群聊中的信息
+            if group_id:
+                member_info = await napcat_get_member_info(
+                    send_handler.server_connection, group_id, bot_id
+                )
+                if member_info:
+                    profile_data["card"] = member_info.get("card") or bot_nickname
+                    profile_data["title"] = member_info.get("title", "")
+                    napcat_role = member_info.get("role")
+                    if napcat_role == "owner":
+                        profile_data["role"] = "owner"
+                    elif napcat_role == "admin":
+                        profile_data["role"] = "admin"
+                    else:
+                        profile_data["role"] = "member"
+
+            return True, "成功获取机器人信息", profile_data
+
+        except Exception as e:
+            logger.error(f"执行获取机器人信息时出现异常: {e}", exc_info=True)
+            return False, f"执行获取机器人信息时出现异常: {e}", {}
+
+
 # --- 这就是我们的“花式玩法名录”（动作工厂） ---
 ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
     "action.message.recall": RecallMessageHandler(),
@@ -218,6 +272,7 @@ ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
     "action.request.friend.reject": HandleFriendRequestHandler(),
     "action.request.conversation.approve": HandleGroupRequestHandler(),
     "action.request.conversation.reject": HandleGroupRequestHandler(),
+    "action.bot.get_profile": GetBotProfileHandler(),
 }
 
 

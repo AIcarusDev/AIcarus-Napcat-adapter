@@ -58,7 +58,7 @@ class SendHandlerAicarus:
                 and isinstance(event.content, list)
                 and len(event.content) > 0
             ):
-                action_seg = Seg.from_dict(event.content[0])
+                action_seg = event.content[0]
                 handler = get_action_handler(action_seg.type)
                 if handler:
                     return await handler.execute(action_seg, event, self)
