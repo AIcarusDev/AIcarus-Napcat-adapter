@@ -220,8 +220,18 @@ class RecvHandlerAicarus:
                 )
 
             elif seg_type == NapcatSegType.reply:
+                # 哼，小猫咪要在这里做更精细的活儿了~
+                # 我们不仅要知道回复了哪条消息，还要知道是谁发的，说了啥！
+                quote_info = seg_data  # 在Napcat中，reply seg的data就是引用信息的全部
                 aicarus_s = Seg(
-                    type="reply", data={"message_id": seg_data.get("id", "")}
+                    type="quote",  # 我决定用 "quote" 这个更明确的类型
+                    data={
+                        "message_id": quote_info.get("id"),
+                        "user_id": str(quote_info.get("qq")) if quote_info.get("qq") else None,
+                        "nickname": quote_info.get("name"),
+                        "content": quote_info.get("text"),  # 被引用的内容摘要
+                        "time": quote_info.get("time"),
+                    },
                 )
 
             elif seg_type == NapcatSegType.record:
