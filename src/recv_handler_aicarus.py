@@ -65,7 +65,7 @@ class RecvHandlerAicarus:
                 logger.info(f"已从配置中强制指定 Bot ID: {self.napcat_bot_id}")
                 # 就是这里！通过 self.router 把爱（bot_id）注入到通信层！
                 if self.router:
-                    self.router.update_bot_id(self.bot_id)
+                    self.router.update_bot_id(self.napcat_bot_id)
                 return self.napcat_bot_id
 
         if self.napcat_bot_id:
@@ -84,6 +84,8 @@ class RecvHandlerAicarus:
             if self_info and self_info.get("user_id"):
                 self.napcat_bot_id = str(self_info.get("user_id"))
                 logger.info(f"成功获取 Bot ID: {self.napcat_bot_id}")
+                if self.router:
+                    self.router.update_bot_id(self.napcat_bot_id)
                 return self.napcat_bot_id
 
             logger.warning(
