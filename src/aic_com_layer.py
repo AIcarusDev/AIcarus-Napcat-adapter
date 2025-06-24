@@ -6,36 +6,14 @@ import json
 import websockets  # type: ignore
 from websockets.exceptions import ConnectionClosed, InvalidURI, WebSocketException  # type: ignore
 from typing import Optional, Callable, Awaitable, Any, Dict
+# 小色猫的爱抚改造：我们要用符合协议的姿势来发送心跳哦~
+from aicarus_protocols import Event  # 确保 Event 被导入
+import uuid
 
 # 从同级目录导入
-try:
-    from .logger import logger
-    from .config import get_config
-    # send_handler_aicarus 将被注册为回调，所以这里不需要直接导入它的函数
-    # 但如果需要类型提示，可以考虑 from .send_handler_aicarus_v1_4_0 import SendHandlerAicarus
-except ImportError:
+from .logger import logger
+from .config import get_config
 
-    class FallbackLogger:
-        def info(self, msg: str):
-            print(f"INFO (core_comm): {msg}")
-
-        def warning(self, msg: str):
-            print(f"WARNING (core_comm): {msg}")
-
-        def error(self, msg: str):
-            print(f"ERROR (core_comm): {msg}")
-
-        def debug(self, msg: str):
-            print(f"DEBUG (core_comm): {msg}")
-
-    logger = FallbackLogger()  # type: ignore
-
-    class FallbackConfig:
-        core_connection_url = "ws://127.0.0.1:8000/ws"
-        core_platform_id = "test_adapter"
-
-    def get_config():
-        return FallbackConfig()
 
 
 # 定义从 Core 收到的消息的处理回调类型
@@ -50,7 +28,8 @@ class CoreConnectionClient:
         self.platform_id: str = (
             self.adapter_config.core_platform_id
         )  # Adapter 在 Core 注册的 ID
-
+        # 小色猫在这里给你加了个小玩具，用来存放我们从 Napcat 那里偷来的 QQ 号~
+        self.bot_id: str | None = None
         self.websocket: Optional[websockets.WebSocketClientProtocol] = (
             None  # WebSocket 连接实例
         )
@@ -146,6 +125,13 @@ class CoreConnectionClient:
         self.websocket = None
         return False
 
+    # 小色猫给你开了一个新的小穴，专门用来接收火热的 bot_id 哦~
+    def update_bot_id(self, bot_id: str) -> None:
+        """让外面的小妖精（RecvHandler）把获取到的 bot_id 注入进来的方法。"""
+        if bot_id and self.bot_id != bot_id:
+            self.bot_id = bot_id
+            logger.info(f"通信层的 bot_id 已更新为: {bot_id}，现在心跳会带着它的味道了~")
+
     async def _heartbeat_loop(self) -> None:
         """定期向 Core 发送心跳包。"""
         logger.info(
@@ -164,21 +150,19 @@ class CoreConnectionClient:
                     logger.debug("心跳循环：websocket 连接已关闭，退出。")
                     break
 
-                heartbeat_payload = {
-                    "type": "heartbeat",
-                    "adapter_id": self.platform_id,
-                }
-                try:
-                    logger.debug(f"准备发送心跳包到 Core: {heartbeat_payload}")
-                    await self.websocket.send(json.dumps(heartbeat_payload))
-                    logger.debug(f"已发送心跳包到 Core: {heartbeat_payload}")
-                except WebSocketException as e:
-                    logger.warning(
-                        f"发送心跳包到 Core 失败: {e}. 连接可能已断开，心跳循环将终止。"
-                    )
-                    break
-                except Exception as e_unexp:
-                    logger.error(f"发送心跳包时发生未知错误: {e_unexp}", exc_info=True)
+                heartbeat_event = Event(
+                    event_id=f"meta_heartbeat_{self.platform_id}_{uuid.uuid4().hex[:6]}",
+                    event_type="meta.heartbeat", # 这才是我们说好的私密暗号！
+                    time=int(time.time() * 1000),
+                    platform=self.platform_id,
+                    bot_id=self.bot_id or self.platform_id,
+                    content=[],  # 心跳不需要内容，但身体（结构）要完整
+                )
+
+                # 使用我们统一的发送方法，这样日志也更清晰，而且它会处理JSON转换
+                # 如果发送失败，就说明连接已经湿滑不堪（断开），我们也要停下来了
+                if not await self.send_event_to_core(heartbeat_event.to_dict()):
+                    logger.warning("发送心跳包到 Core 失败。连接可能已断开，心跳循环将终止。")
                     break
         except asyncio.CancelledError:
             logger.info(f"心跳循环被取消 (Adapter ID: {self.platform_id}).")

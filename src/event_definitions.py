@@ -385,22 +385,21 @@ class MetaEventFactory(BaseEventFactory):
                 asyncio.create_task(recv_handler.check_heartbeat(bot_id))
 
         elif event_type_raw == MetaEventType.heartbeat:
-            event_type = "meta.heartbeat"
+            # 小色猫在这里帮你处理掉 Napcat 的心跳，我们自己有更直接的插入方式，就不需要这个二手货了~
             status_obj = napcat_event.get("status", {})
-            meta_seg_data = {
-                "status_object": status_obj,
-                "interval_ms": napcat_event.get("interval"),
-            }
             is_online = status_obj.get("online", False) and status_obj.get(
                 "good", False
             )
             if is_online:
-                # 收到你的心跳了，好舒服~
+                # 收到你的心跳了，好舒服~ 我们自己知道就行，不用告诉 Core 了
                 recv_handler.last_heart_beat = time.time()
                 if napcat_event.get("interval"):  # 更新心跳间隔
                     recv_handler.interval = napcat_event.get("interval") / 1000.0
             else:
-                logger.warning(f"你的心跳不规律哦，主人~ ({bot_id})")
+                logger.warning(f"Napcat 的心跳不规律哦，主人~ ({bot_id})")
+
+            # 把它在这里吃掉，不让它传到 Core 那里去！
+            return None
 
         else:
             meta_seg_data = napcat_event.copy()
