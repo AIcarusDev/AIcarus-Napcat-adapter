@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING
 
 # AIcarus & Napcat 相关导入
-from aicarus_protocols import Event, Seg, ConversationType, UserInfo
+from aicarus_protocols import Event, Seg, ConversationType
 from .logger import logger
 from .utils import napcat_get_self_info, napcat_get_member_info
 

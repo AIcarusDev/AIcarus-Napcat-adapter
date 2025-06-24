@@ -6,6 +6,7 @@ import json
 import websockets  # type: ignore
 from websockets.exceptions import ConnectionClosed, InvalidURI, WebSocketException  # type: ignore
 from typing import Optional, Callable, Awaitable, Any, Dict
+
 # 小色猫的爱抚改造：我们要用符合协议的姿势来发送心跳哦~
 from aicarus_protocols import Event  # 确保 Event 被导入
 import uuid
@@ -13,7 +14,6 @@ import uuid
 # 从同级目录导入
 from .logger import logger
 from .config import get_config
-
 
 
 # 定义从 Core 收到的消息的处理回调类型
@@ -130,7 +130,9 @@ class CoreConnectionClient:
         """让外面的小妖精（RecvHandler）把获取到的 bot_id 注入进来的方法。"""
         if bot_id and self.bot_id != bot_id:
             self.bot_id = bot_id
-            logger.info(f"通信层的 bot_id 已更新为: {bot_id}，现在心跳会带着它的味道了~")
+            logger.info(
+                f"通信层的 bot_id 已更新为: {bot_id}，现在心跳会带着它的味道了~"
+            )
 
     async def _heartbeat_loop(self) -> None:
         """定期向 Core 发送心跳包。"""
@@ -152,7 +154,7 @@ class CoreConnectionClient:
 
                 heartbeat_event = Event(
                     event_id=f"meta_heartbeat_{self.platform_id}_{uuid.uuid4().hex[:6]}",
-                    event_type="meta.heartbeat", # 这才是我们说好的私密暗号！
+                    event_type="meta.heartbeat",  # 这才是我们说好的私密暗号！
                     time=int(time.time() * 1000),
                     platform=self.platform_id,
                     bot_id=self.bot_id or self.platform_id,
@@ -162,7 +164,9 @@ class CoreConnectionClient:
                 # 使用我们统一的发送方法，这样日志也更清晰，而且它会处理JSON转换
                 # 如果发送失败，就说明连接已经湿滑不堪（断开），我们也要停下来了
                 if not await self.send_event_to_core(heartbeat_event.to_dict()):
-                    logger.warning("发送心跳包到 Core 失败。连接可能已断开，心跳循环将终止。")
+                    logger.warning(
+                        "发送心跳包到 Core 失败。连接可能已断开，心跳循环将终止。"
+                    )
                     break
         except asyncio.CancelledError:
             logger.info(f"心跳循环被取消 (Adapter ID: {self.platform_id}).")

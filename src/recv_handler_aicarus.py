@@ -230,7 +230,9 @@ class RecvHandlerAicarus:
                     type="quote",  # 我决定用 "quote" 这个更明确的类型
                     data={
                         "message_id": quote_info.get("id"),
-                        "user_id": str(quote_info.get("qq")) if quote_info.get("qq") else None,
+                        "user_id": str(quote_info.get("qq"))
+                        if quote_info.get("qq")
+                        else None,
                         "nickname": quote_info.get("name"),
                         "content": quote_info.get("text"),  # 被引用的内容摘要
                         "time": quote_info.get("time"),
