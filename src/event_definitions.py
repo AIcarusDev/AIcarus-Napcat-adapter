@@ -148,7 +148,7 @@ class NoticeEventFactory(BaseEventFactory):
 
         # --- 【雷达核心】侦测关于机器人自身的通知 ---
         user_id_in_notice = str(napcat_event.get("user_id", "")).strip()
-        is_bot_profile_update = (user_id_in_notice == bot_id)
+        is_bot_profile_update = user_id_in_notice == bot_id
 
         # 1. 侦测群名片变更
         if notice_type == NoticeType.group_card and is_bot_profile_update:
@@ -156,11 +156,13 @@ class NoticeEventFactory(BaseEventFactory):
             if not group_id:
                 logger.warning("收到了机器人群名片变更通知，但缺少group_id，无法处理。")
                 return None
-            
+
             new_card = napcat_event.get("card_new", "")
             old_card = napcat_event.get("card_old", "")
-            logger.info(f"侦测到机器人自身在群 '{group_id}' 的名片变更: '{old_card}' -> '{new_card}'")
-            
+            logger.info(
+                f"侦测到机器人自身在群 '{group_id}' 的名片变更: '{old_card}' -> '{new_card}'"
+            )
+
             report_data = {
                 "update_type": "card_change",
                 "conversation_id": group_id,
@@ -168,24 +170,36 @@ class NoticeEventFactory(BaseEventFactory):
                 "new_value": new_card,
                 "old_value": old_card,
             }
-            return self._create_bot_profile_update_event(bot_id, cfg.core_platform_id, report_data)
+            return self._create_bot_profile_update_event(
+                bot_id, cfg.core_platform_id, report_data
+            )
 
         # --- 如果不是特殊通知，就按常规流程处理 ---
-        
+
         # 统一提取上下文信息
         group_id_str = str(napcat_event.get("group_id", "")).strip()
-        group_id_for_context = group_id_str if group_id_str and group_id_str != "0" else None
-        
+        group_id_for_context = (
+            group_id_str if group_id_str and group_id_str != "0" else None
+        )
+
         subject_user_id_str = str(napcat_event.get("user_id", "")).strip()
-        subject_user_id = subject_user_id_str if subject_user_id_str and subject_user_id_str != "0" else None
+        subject_user_id = (
+            subject_user_id_str
+            if subject_user_id_str and subject_user_id_str != "0"
+            else None
+        )
 
         operator_id_str = str(napcat_event.get("operator_id", "")).strip()
-        operator_id = operator_id_str if operator_id_str and operator_id_str != "0" else None
+        operator_id = (
+            operator_id_str if operator_id_str and operator_id_str != "0" else None
+        )
 
         conversation_info: Optional[ConversationInfo] = None
         if group_id_for_context:
-            conversation_info = await recv_handler._napcat_to_aicarus_conversationinfo(group_id_for_context)
-        
+            conversation_info = await recv_handler._napcat_to_aicarus_conversationinfo(
+                group_id_for_context
+            )
+
         user_info: Optional[UserInfo] = None
         if subject_user_id:
             user_info = await recv_handler._napcat_to_aicarus_userinfo(
@@ -193,7 +207,7 @@ class NoticeEventFactory(BaseEventFactory):
             )
 
         # --- 根据不同的通知类型，构造事件内容 ---
-        event_type = f"notice.unknown.{notice_type}" # 默认事件类型
+        event_type = f"notice.unknown.{notice_type}"  # 默认事件类型
         notice_data: Dict[str, Any] = {}
 
         if notice_type == NoticeType.group_upload:
@@ -207,12 +221,20 @@ class NoticeEventFactory(BaseEventFactory):
             event_type = "notice.conversation.admin_change"
             notice_data = {
                 "target_user_info": user_info.to_dict() if user_info else None,
-                "action_type": "set" if napcat_event.get("sub_type") == "set" else "unset",
+                "action_type": "set"
+                if napcat_event.get("sub_type") == "set"
+                else "unset",
             }
 
         elif notice_type == NoticeType.group_decrease:
             event_type = "notice.conversation.member_decrease"
-            operator = await recv_handler._napcat_to_aicarus_userinfo({"user_id": operator_id}, group_id=group_id_for_context) if operator_id else None
+            operator = (
+                await recv_handler._napcat_to_aicarus_userinfo(
+                    {"user_id": operator_id}, group_id=group_id_for_context
+                )
+                if operator_id
+                else None
+            )
             notice_data = {
                 "operator_user_info": operator.to_dict() if operator else None,
                 "leave_type": napcat_event.get("sub_type"),
@@ -220,7 +242,13 @@ class NoticeEventFactory(BaseEventFactory):
 
         elif notice_type == NoticeType.group_increase:
             event_type = "notice.conversation.member_increase"
-            operator = await recv_handler._napcat_to_aicarus_userinfo({"user_id": operator_id}, group_id=group_id_for_context) if operator_id else None
+            operator = (
+                await recv_handler._napcat_to_aicarus_userinfo(
+                    {"user_id": operator_id}, group_id=group_id_for_context
+                )
+                if operator_id
+                else None
+            )
             notice_data = {
                 "operator_user_info": operator.to_dict() if operator else None,
                 "join_type": napcat_event.get("sub_type"),
@@ -229,7 +257,13 @@ class NoticeEventFactory(BaseEventFactory):
         elif notice_type == NoticeType.group_ban:
             event_type = "notice.conversation.member_ban"
             duration = napcat_event.get("duration", 0)
-            operator = await recv_handler._napcat_to_aicarus_userinfo({"user_id": operator_id}, group_id=group_id_for_context) if operator_id else None
+            operator = (
+                await recv_handler._napcat_to_aicarus_userinfo(
+                    {"user_id": operator_id}, group_id=group_id_for_context
+                )
+                if operator_id
+                else None
+            )
             notice_data = {
                 "target_user_info": user_info.to_dict() if user_info else None,
                 "operator_user_info": operator.to_dict() if operator else None,
@@ -237,23 +271,46 @@ class NoticeEventFactory(BaseEventFactory):
                 "ban_type": "ban" if duration > 0 else "lift_ban",
             }
 
-        elif notice_type == NoticeType.group_recall or notice_type == NoticeType.friend_recall:
+        elif (
+            notice_type == NoticeType.group_recall
+            or notice_type == NoticeType.friend_recall
+        ):
             event_type = "notice.message.recalled"
-            operator = await recv_handler._napcat_to_aicarus_userinfo({"user_id": operator_id}, group_id=group_id_for_context) if operator_id else None
+            operator = (
+                await recv_handler._napcat_to_aicarus_userinfo(
+                    {"user_id": operator_id}, group_id=group_id_for_context
+                )
+                if operator_id
+                else None
+            )
             notice_data = {
                 "recalled_message_id": str(napcat_event.get("message_id", "")),
-                "recalled_message_sender_info": user_info.to_dict() if user_info else None,
-                "operator_user_info": operator.to_dict() if operator else (user_info.to_dict() if user_info and notice_type == NoticeType.friend_recall else None),
+                "recalled_message_sender_info": user_info.to_dict()
+                if user_info
+                else None,
+                "operator_user_info": operator.to_dict()
+                if operator
+                else (
+                    user_info.to_dict()
+                    if user_info and notice_type == NoticeType.friend_recall
+                    else None
+                ),
             }
 
-        elif notice_type == NoticeType.notify and napcat_event.get("sub_type") == "poke":
+        elif (
+            notice_type == NoticeType.notify and napcat_event.get("sub_type") == "poke"
+        ):
             event_type = "notice.user.poke"
             target_id = str(napcat_event.get("target_id", ""))
             sender_id = str(napcat_event.get("sender_id", ""))
-            
-            sender_info = await recv_handler._napcat_to_aicarus_userinfo({"user_id": sender_id}, group_id=group_id_for_context)
-            target_info = await recv_handler._napcat_to_aicarus_userinfo({"user_id": target_id}, group_id=group_id_for_context)
-            
+
+            sender_info = await recv_handler._napcat_to_aicarus_userinfo(
+                {"user_id": sender_id}, group_id=group_id_for_context
+            )
+            target_info = await recv_handler._napcat_to_aicarus_userinfo(
+                {"user_id": target_id}, group_id=group_id_for_context
+            )
+
             user_info = sender_info  # 戳一戳事件的主体是发起者
             notice_data = {
                 "sender_user_info": sender_info.to_dict() if sender_info else None,
@@ -262,7 +319,9 @@ class NoticeEventFactory(BaseEventFactory):
             }
 
         else:
-            logger.warning(f"接收到未明确处理的通知类型: {notice_type}，将作为通用通知处理。")
+            logger.warning(
+                f"接收到未明确处理的通知类型: {notice_type}，将作为通用通知处理。"
+            )
             notice_data = napcat_event.copy()
 
         # 最终构造并返回事件
@@ -279,11 +338,13 @@ class NoticeEventFactory(BaseEventFactory):
             raw_data=json.dumps(napcat_event),
         )
 
-    def _create_bot_profile_update_event(self, bot_id: str, platform_id: str, report_data: Dict[str, Any]) -> Event:
+    def _create_bot_profile_update_event(
+        self, bot_id: str, platform_id: str, report_data: Dict[str, Any]
+    ) -> Event:
         """创建一个机器人档案更新的特殊通知事件。"""
         event_type = "notice.bot.profile_update"
         conversation_id = report_data.get("conversation_id", "unknown")
-        
+
         return Event(
             event_id=f"bot_profile_update_{conversation_id}_{uuid.uuid4().hex[:6]}",
             event_type=event_type,

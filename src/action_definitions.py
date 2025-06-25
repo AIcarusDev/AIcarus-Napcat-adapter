@@ -217,9 +217,8 @@ class GetBotProfileHandler(BaseActionHandler):
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
-        
         # --- 小懒猫加的日志：开始啦！ ---
-        action_id = event.event_id # 获取这次动作的唯一ID，方便追踪
+        action_id = event.event_id  # 获取这次动作的唯一ID，方便追踪
         logger.info(f"准备开始了！[{action_id}] 开始执行 GetBotProfileHandler...")
         # ---
 
@@ -228,20 +227,26 @@ class GetBotProfileHandler(BaseActionHandler):
 
         if not send_handler.server_connection:
             # --- 小懒猫加的日志：出师未捷身先死 ---
-            logger.error(f"[{action_id}] 执行失败：出师未捷身先死，与 Napcat 的连接已断开。")
+            logger.error(
+                f"[{action_id}] 执行失败：出师未捷身先死，与 Napcat 的连接已断开。"
+            )
             # ---
             return False, "与 Napcat 的连接已断开", {}
 
         try:
             # 1. 获取机器人自身的全局信息
             # --- 小懒猫加的日志：要去问 Napcat 拿全局信息了 ---
-            logger.info(f"真的要开始拿了！[{action_id}] 正在调用 napcat_get_self_info 获取机器人全局信息...")
+            logger.info(
+                f"真的要开始拿了！[{action_id}] 正在调用 napcat_get_self_info 获取机器人全局信息..."
+            )
             # ---
             self_info = await napcat_get_self_info(send_handler.server_connection)
             if not self_info or not self_info.get("user_id"):
-                logger.error(f"草，[{action_id}] 获取机器人全局信息失败。API返回: {self_info}")
+                logger.error(
+                    f"草，[{action_id}] 获取机器人全局信息失败。API返回: {self_info}"
+                )
                 return False, "获取机器人自身信息失败", {}
-            
+
             # --- 小懒猫加的日志：成功了！ ---
             logger.info(f"666![{action_id}] 成功获取机器人全局信息: {self_info}")
             # ---
@@ -260,8 +265,10 @@ class GetBotProfileHandler(BaseActionHandler):
 
             # 2. 如果提供了 group_id，则获取在特定群聊中的信息
             if group_id:
-                 # --- 小懒猫加的日志：要去问 Napcat 拿群内信息了 ---
-                logger.info(f"[{action_id}] 提供了 group_id ({group_id})，正在调用 napcat_get_member_info...")
+                # --- 小懒猫加的日志：要去问 Napcat 拿群内信息了 ---
+                logger.info(
+                    f"[{action_id}] 提供了 group_id ({group_id})，正在调用 napcat_get_member_info..."
+                )
                 # ---
                 member_info = await napcat_get_member_info(
                     send_handler.server_connection, group_id, bot_id
@@ -281,17 +288,24 @@ class GetBotProfileHandler(BaseActionHandler):
                         profile_data["role"] = "member"
                 else:
                     # --- 小懒猫加的日志：群内信息没拿到... ---
-                    logger.warning(f"草，[{action_id}] 未能获取到群 {group_id} 内的信息，将使用全局信息作为名片等。")
+                    logger.warning(
+                        f"草，[{action_id}] 未能获取到群 {group_id} 内的信息，将使用全局信息作为名片等。"
+                    )
                     # ---
 
             # --- 小懒猫加的日志：大功告成，准备回家！ ---
-            logger.info(f"好！[{action_id}] GetBotProfileHandler 执行成功，最终返回数据: {profile_data}")
+            logger.info(
+                f"好！[{action_id}] GetBotProfileHandler 执行成功，最终返回数据: {profile_data}"
+            )
             # ---
             return True, "成功获取机器人信息", profile_data
 
         except Exception as e:
             # --- 小懒猫加的日志：出大事了！ ---
-            logger.error(f"出大事了！[{action_id}] 执行获取机器人信息时出现异常: {e}", exc_info=True)
+            logger.error(
+                f"出大事了！[{action_id}] 执行获取机器人信息时出现异常: {e}",
+                exc_info=True,
+            )
             # ---
             return False, f"执行获取机器人信息时出现异常: {e}", {}
 
