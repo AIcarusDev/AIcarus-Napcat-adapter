@@ -228,6 +228,10 @@ def convert_image_to_gif_base64(image_base64: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"转换图片为 GIF 格式时发生错误: {e}")
         return None
+    
+async def napcat_get_group_list(server_connection: Any) -> Optional[List[Dict[str, Any]]]:
+    """获取机器人加入的群聊列表。"""
+    return await _call_napcat_api(server_connection, "get_group_list", {})
 
 
 if __name__ == "__main__":

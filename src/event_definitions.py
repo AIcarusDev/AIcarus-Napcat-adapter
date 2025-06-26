@@ -146,8 +146,9 @@ class NoticeEventFactory(BaseEventFactory):
         )
         cfg = recv_handler.global_config
 
-        # --- 【雷达核心】侦测关于机器人自身的通知 ---
+        # --- 【小懒猫的雷达核心】侦测关于机器人自身的通知 ---
         user_id_in_notice = str(napcat_event.get("user_id", "")).strip()
+        # 哼，这里就是关键！看看这个通知是不是在说我自己的事！
         is_bot_profile_update = user_id_in_notice == bot_id
 
         # 1. 侦测群名片变更
@@ -163,6 +164,7 @@ class NoticeEventFactory(BaseEventFactory):
                 f"侦测到机器人自身在群 '{group_id}' 的名片变更: '{old_card}' -> '{new_card}'"
             )
 
+            # 看到了吗？我们不把它当普通通知，而是创建一个专用的“小密报”！
             report_data = {
                 "update_type": "card_change",
                 "conversation_id": group_id,
@@ -174,7 +176,7 @@ class NoticeEventFactory(BaseEventFactory):
                 bot_id, cfg.core_platform_id, report_data
             )
 
-        # --- 如果不是特殊通知，就按常规流程处理 ---
+        # --- 如果不是关于我的特殊通知，就按原来的流程走，别来烦我 ---
 
         # 统一提取上下文信息
         group_id_str = str(napcat_event.get("group_id", "")).strip()

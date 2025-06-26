@@ -2,11 +2,13 @@
 # 这是我们的“花式玩法名录”，哥哥你看，是不是很性感？
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING
+import asyncio
+import random
 
 # AIcarus & Napcat 相关导入
 from aicarus_protocols import Event, Seg, ConversationType
 from .logger import logger
-from .utils import napcat_get_self_info, napcat_get_member_info
+from .utils import napcat_get_self_info, napcat_get_member_info, napcat_get_group_list
 
 if TYPE_CHECKING:
     from .send_handler_aicarus import SendHandlerAicarus
@@ -212,101 +214,85 @@ class HandleGroupRequestHandler(BaseActionHandler):
 
 
 class GetBotProfileHandler(BaseActionHandler):
-    """处理获取机器人自身信息的请求，让我看看我自己长啥样~"""
+    """
+    处理获取机器人自身信息的请求。
+    升级版！现在能一次性获取所有群的名片了，哼！
+    """
 
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
-        # --- 小懒猫加的日志：开始啦！ ---
-        action_id = event.event_id  # 获取这次动作的唯一ID，方便追踪
-        logger.info(f"准备开始了！[{action_id}] 开始执行 GetBotProfileHandler...")
-        # ---
-
-        action_data = action_seg.data
-        group_id = action_data.get("group_id")
+        action_id = event.event_id
+        logger.info(f"[{action_id}] 开始执行 GetBotProfileHandler (上线安检)...")
 
         if not send_handler.server_connection:
-            # --- 小懒猫加的日志：出师未捷身先死 ---
-            logger.error(
-                f"[{action_id}] 执行失败：出师未捷身先死，与 Napcat 的连接已断开。"
-            )
-            # ---
+            logger.error(f"[{action_id}] 执行失败：与 Napcat 的连接已断开。")
             return False, "与 Napcat 的连接已断开", {}
 
         try:
-            # 1. 获取机器人自身的全局信息
-            # --- 小懒猫加的日志：要去问 Napcat 拿全局信息了 ---
-            logger.info(
-                f"真的要开始拿了！[{action_id}] 正在调用 napcat_get_self_info 获取机器人全局信息..."
-            )
-            # ---
+            # 1. 获取机器人自身的全局信息 (QQ号，昵称)
+            logger.info(f"[{action_id}] 正在获取机器人全局信息...")
             self_info = await napcat_get_self_info(send_handler.server_connection)
             if not self_info or not self_info.get("user_id"):
-                logger.error(
-                    f"草，[{action_id}] 获取机器人全局信息失败。API返回: {self_info}"
-                )
+                logger.error(f"[{action_id}] 获取机器人全局信息失败。API返回: {self_info}")
                 return False, "获取机器人自身信息失败", {}
-
-            # --- 小懒猫加的日志：成功了！ ---
-            logger.info(f"666![{action_id}] 成功获取机器人全局信息: {self_info}")
-            # ---
 
             bot_id = str(self_info["user_id"])
             bot_nickname = self_info.get("nickname", "")
+            logger.info(f"[{action_id}] 成功获取机器人全局信息: ID={bot_id}, Nickname={bot_nickname}")
 
-            # 准备返回给 Core 的信息字典
+            # 2. 准备最终要返回给 Core 的数据结构
             profile_data = {
                 "user_id": bot_id,
                 "nickname": bot_nickname,
-                "card": bot_nickname,  # 默认情况下，群名片等于昵称
-                "title": "",
-                "role": "member",  # 默认是成员
+                "groups": {} # <-- 看这里！它创建了一个空的 groups 字典！
             }
 
-            # 2. 如果提供了 group_id，则获取在特定群聊中的信息
-            if group_id:
-                # --- 小懒猫加的日志：要去问 Napcat 拿群内信息了 ---
-                logger.info(
-                    f"[{action_id}] 提供了 group_id ({group_id})，正在调用 napcat_get_member_info..."
-                )
-                # ---
+            # 3. 获取机器人加入的所有群聊列表
+            logger.info(f"[{action_id}] 正在获取机器人所在的群聊列表...")
+            group_list = await napcat_get_group_list(send_handler.server_connection)
+            if not group_list:
+                logger.warning(f"[{action_id}] 未获取到任何群聊列表，将只返回全局信息。")
+                return True, "成功获取机器人信息（无群聊）", profile_data
+
+            logger.info(f"[{action_id}] 成功获取到 {len(group_list)} 个群聊，开始逐个查询群内档案...")
+
+            # 4. 遍历所有群，获取机器人在每个群里的名片、头衔等信息
+            for group in group_list:
+                group_id = str(group.get("group_id"))
+                group_name = group.get("group_name", "未知群名")
+                
+                await asyncio.sleep(random.uniform(0.1, 0.3))
+
                 member_info = await napcat_get_member_info(
                     send_handler.server_connection, group_id, bot_id
                 )
                 if member_info:
-                    # --- 小懒猫加的日志：群内信息也拿到了！ ---
-                    logger.info(f"[{action_id}] 成功获取群内信息: {member_info}")
-                    # ---
-                    profile_data["card"] = member_info.get("card") or bot_nickname
-                    profile_data["title"] = member_info.get("title", "")
+                    card = member_info.get("card") or bot_nickname
+                    title = member_info.get("title", "")
+                    role = "member"
                     napcat_role = member_info.get("role")
                     if napcat_role == "owner":
-                        profile_data["role"] = "owner"
+                        role = "owner"
                     elif napcat_role == "admin":
-                        profile_data["role"] = "admin"
-                    else:
-                        profile_data["role"] = "member"
-                else:
-                    # --- 小懒猫加的日志：群内信息没拿到... ---
-                    logger.warning(
-                        f"草，[{action_id}] 未能获取到群 {group_id} 内的信息，将使用全局信息作为名片等。"
-                    )
-                    # ---
+                        role = "admin"
 
-            # --- 小懒猫加的日志：大功告成，准备回家！ ---
-            logger.info(
-                f"好！[{action_id}] GetBotProfileHandler 执行成功，最终返回数据: {profile_data}"
-            )
-            # ---
-            return True, "成功获取机器人信息", profile_data
+                    # 把这个群的信息存到 groups 字典里！
+                    profile_data["groups"][group_id] = {
+                        "group_name": group_name,
+                        "card": card,
+                        "title": title,
+                        "role": role,
+                    }
+                    logger.debug(f"[{action_id}] > 群({group_id})档案获取成功: 名片='{card}'")
+                else:
+                    logger.warning(f"[{action_id}] > 未能获取到群 {group_id} 内的机器人档案。")
+
+            logger.info(f"[{action_id}] 所有群聊档案查询完毕，安检完成！")
+            return True, "成功获取机器人信息（包括所有群聊档案）", profile_data
 
         except Exception as e:
-            # --- 小懒猫加的日志：出大事了！ ---
-            logger.error(
-                f"出大事了！[{action_id}] 执行获取机器人信息时出现异常: {e}",
-                exc_info=True,
-            )
-            # ---
+            logger.error(f"[{action_id}] 执行获取机器人信息时出现异常: {e}", exc_info=True)
             return False, f"执行获取机器人信息时出现异常: {e}", {}
 
 
