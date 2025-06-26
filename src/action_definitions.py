@@ -234,34 +234,42 @@ class GetBotProfileHandler(BaseActionHandler):
             logger.info(f"[{action_id}] 正在获取机器人全局信息...")
             self_info = await napcat_get_self_info(send_handler.server_connection)
             if not self_info or not self_info.get("user_id"):
-                logger.error(f"[{action_id}] 获取机器人全局信息失败。API返回: {self_info}")
+                logger.error(
+                    f"[{action_id}] 获取机器人全局信息失败。API返回: {self_info}"
+                )
                 return False, "获取机器人自身信息失败", {}
 
             bot_id = str(self_info["user_id"])
             bot_nickname = self_info.get("nickname", "")
-            logger.info(f"[{action_id}] 成功获取机器人全局信息: ID={bot_id}, Nickname={bot_nickname}")
+            logger.info(
+                f"[{action_id}] 成功获取机器人全局信息: ID={bot_id}, Nickname={bot_nickname}"
+            )
 
             # 2. 准备最终要返回给 Core 的数据结构
             profile_data = {
                 "user_id": bot_id,
                 "nickname": bot_nickname,
-                "groups": {} # <-- 看这里！它创建了一个空的 groups 字典！
+                "groups": {},  # <-- 看这里！它创建了一个空的 groups 字典！
             }
 
             # 3. 获取机器人加入的所有群聊列表
             logger.info(f"[{action_id}] 正在获取机器人所在的群聊列表...")
             group_list = await napcat_get_group_list(send_handler.server_connection)
             if not group_list:
-                logger.warning(f"[{action_id}] 未获取到任何群聊列表，将只返回全局信息。")
+                logger.warning(
+                    f"[{action_id}] 未获取到任何群聊列表，将只返回全局信息。"
+                )
                 return True, "成功获取机器人信息（无群聊）", profile_data
 
-            logger.info(f"[{action_id}] 成功获取到 {len(group_list)} 个群聊，开始逐个查询群内档案...")
+            logger.info(
+                f"[{action_id}] 成功获取到 {len(group_list)} 个群聊，开始逐个查询群内档案..."
+            )
 
             # 4. 遍历所有群，获取机器人在每个群里的名片、头衔等信息
             for group in group_list:
                 group_id = str(group.get("group_id"))
                 group_name = group.get("group_name", "未知群名")
-                
+
                 await asyncio.sleep(random.uniform(0.1, 0.3))
 
                 member_info = await napcat_get_member_info(
@@ -284,15 +292,21 @@ class GetBotProfileHandler(BaseActionHandler):
                         "title": title,
                         "role": role,
                     }
-                    logger.debug(f"[{action_id}] > 群({group_id})档案获取成功: 名片='{card}'")
+                    logger.debug(
+                        f"[{action_id}] > 群({group_id})档案获取成功: 名片='{card}'"
+                    )
                 else:
-                    logger.warning(f"[{action_id}] > 未能获取到群 {group_id} 内的机器人档案。")
+                    logger.warning(
+                        f"[{action_id}] > 未能获取到群 {group_id} 内的机器人档案。"
+                    )
 
             logger.info(f"[{action_id}] 所有群聊档案查询完毕，安检完成！")
             return True, "成功获取机器人信息（包括所有群聊档案）", profile_data
 
         except Exception as e:
-            logger.error(f"[{action_id}] 执行获取机器人信息时出现异常: {e}", exc_info=True)
+            logger.error(
+                f"[{action_id}] 执行获取机器人信息时出现异常: {e}", exc_info=True
+            )
             return False, f"执行获取机器人信息时出现异常: {e}", {}
 
 

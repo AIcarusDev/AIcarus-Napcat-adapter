@@ -53,7 +53,7 @@ class SendHandlerAicarus:
 
         action_type = event.event_type
         logger.info(f"发送处理器正在分发动作，类型: {action_type}")
-        
+
         try:
             # 1. 专门为 action.message.send 开一个快速通道，因为它最常用
             if action_type == "action.message.send":
@@ -64,22 +64,30 @@ class SendHandlerAicarus:
             if handler:
                 # 注意：handler 的 execute 方法需要 action_seg，我们从 content 里取第一个
                 # 这是一个约定：所有非发消息的动作，其核心参数都在第一个 seg 里
-                if event.content and isinstance(event.content, list) and len(event.content) > 0:
+                if (
+                    event.content
+                    and isinstance(event.content, list)
+                    and len(event.content) > 0
+                ):
                     action_seg = event.content[0]
                     return await handler.execute(action_seg, event, self)
                 else:
                     # 如果有 handler 但没有 content，说明事件构造有问题
-                    error_msg = f"动作 '{action_type}' 找到了处理器，但事件内容为空，无法执行。"
+                    error_msg = (
+                        f"动作 '{action_type}' 找到了处理器，但事件内容为空，无法执行。"
+                    )
                     logger.error(error_msg)
                     return False, error_msg, {}
-            
+
             # 3. 如果找不到任何处理器
             error_msg = f"未知的动作类型 '{action_type}'，我不知道该怎么做。"
             logger.warning(error_msg)
             return False, error_msg, {}
 
         except Exception as e:
-            logger.error(f"执行动作 '{action_type}' 时，身体不听使唤了: {e}", exc_info=True)
+            logger.error(
+                f"执行动作 '{action_type}' 时，身体不听使唤了: {e}", exc_info=True
+            )
             return False, f"执行动作时出现异常: {e}", {}
 
     async def _handle_send_message_action(
