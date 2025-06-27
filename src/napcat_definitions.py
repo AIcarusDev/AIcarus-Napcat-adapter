@@ -85,5 +85,5 @@ class NapcatSegType:
     reply = "reply"  # 回复
 
 
-# AIcarus 协议版本 - v1.4.0
-AICARUS_PROTOCOL_VERSION = "1.4.0"
+# AIcarus 协议版本 - v1.5.0
+AICARUS_PROTOCOL_VERSION = "1.5.0"
