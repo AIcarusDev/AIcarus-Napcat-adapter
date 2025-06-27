@@ -9,6 +9,7 @@ import random
 from aicarus_protocols import Event, Seg, ConversationType
 from .logger import logger
 from .utils import napcat_get_self_info, napcat_get_member_info, napcat_get_group_list
+from .config import get_config
 
 if TYPE_CHECKING:
     from .send_handler_aicarus import SendHandlerAicarus
@@ -241,6 +242,8 @@ class GetBotProfileHandler(BaseActionHandler):
 
             bot_id = str(self_info["user_id"])
             bot_nickname = self_info.get("nickname", "")
+            config = get_config()
+            platform = config.core_platform_id
             logger.info(
                 f"[{action_id}] 成功获取机器人全局信息: ID={bot_id}, Nickname={bot_nickname}"
             )
@@ -249,6 +252,7 @@ class GetBotProfileHandler(BaseActionHandler):
             profile_data = {
                 "user_id": bot_id,
                 "nickname": bot_nickname,
+                "platform": platform,
                 "groups": {},  # <-- 看这里！它创建了一个空的 groups 字典！
             }
 
