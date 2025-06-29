@@ -202,12 +202,18 @@ class RecvHandlerAicarus:
                         image_base64 = await get_image_base64_from_url(image_url)
                     except Exception as e:
                         logger.error(f"处理图片高潮时发生错误: {e}")
+                if seg_data.get("summary", "[图片]") == "[动画表情]":
+                    # 如果是动画表情，就用特殊的标记
+                    summary = "sticker"
+                else:
+                    summary = "image"
                 aicarus_s = Seg(
                     type="image",
                     data={
                         "url": image_url,
                         "file_id": seg_data.get("file"),
                         "base64": image_base64,
+                        "summary": summary,
                     },
                 )
 
