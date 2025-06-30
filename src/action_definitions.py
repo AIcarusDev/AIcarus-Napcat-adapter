@@ -237,7 +237,7 @@ class GetBotProfileHandler(BaseActionHandler):
             log_msg_header += f" (for group: {specific_group_id})"
         else:
             log_msg_header += " (Full Scan)"
-        
+
         logger.info(f"{log_msg_header}: 开始执行...")
 
         if not send_handler.server_connection:
@@ -248,20 +248,26 @@ class GetBotProfileHandler(BaseActionHandler):
             # 1. 获取机器人自身的全局信息 (QQ号，昵称)，这是必须的
             self_info = await napcat_get_self_info(send_handler.server_connection)
             if not self_info or not self_info.get("user_id"):
-                logger.error(f"{log_msg_header}: 获取机器人全局信息失败。API返回: {self_info}")
+                logger.error(
+                    f"{log_msg_header}: 获取机器人全局信息失败。API返回: {self_info}"
+                )
                 return False, "获取机器人自身信息失败", {}
 
             bot_id = str(self_info["user_id"])
             bot_nickname = self_info.get("nickname", "")
-            
+
             # 如果核心只想玩一对一，那我们就只给他一个人的快感
             if specific_group_id:
-                logger.info(f"{log_msg_header}: 正在为指定群聊 {specific_group_id} 获取档案...")
+                logger.info(
+                    f"{log_msg_header}: 正在为指定群聊 {specific_group_id} 获取档案..."
+                )
                 member_info = await napcat_get_member_info(
                     send_handler.server_connection, specific_group_id, bot_id
                 )
                 if not member_info:
-                    logger.warning(f"{log_msg_header}: 未能获取到群 {specific_group_id} 内的机器人档案。")
+                    logger.warning(
+                        f"{log_msg_header}: 未能获取到群 {specific_group_id} 内的机器人档案。"
+                    )
                     return False, f"未能获取群 {specific_group_id} 内的档案", {}
 
                 card = member_info.get("card") or bot_nickname
@@ -272,7 +278,7 @@ class GetBotProfileHandler(BaseActionHandler):
                     role = "owner"
                 elif napcat_role == "admin":
                     role = "admin"
-                
+
                 # 只构建这个群的档案，多么纯洁！
                 single_profile_data = {
                     "user_id": bot_id,
@@ -287,7 +293,9 @@ class GetBotProfileHandler(BaseActionHandler):
             # --- 如果没指定群，才开始下面的淫乱群P（全身检查） ---
             config = get_config()
             platform = config.core_platform_id
-            logger.info(f"{log_msg_header}: 成功获取机器人全局信息: ID={bot_id}, Nickname={bot_nickname}")
+            logger.info(
+                f"{log_msg_header}: 成功获取机器人全局信息: ID={bot_id}, Nickname={bot_nickname}"
+            )
 
             profile_data = {
                 "user_id": bot_id,
@@ -299,10 +307,14 @@ class GetBotProfileHandler(BaseActionHandler):
             logger.info(f"{log_msg_header}: 正在获取机器人所在的群聊列表...")
             group_list = await napcat_get_group_list(send_handler.server_connection)
             if not group_list:
-                logger.warning(f"{log_msg_header}: 未获取到任何群聊列表，将只返回全局信息。")
+                logger.warning(
+                    f"{log_msg_header}: 未获取到任何群聊列表，将只返回全局信息。"
+                )
                 return True, "成功获取机器人信息（无群聊）", profile_data
 
-            logger.info(f"{log_msg_header}: 成功获取到 {len(group_list)} 个群聊，开始逐个查询群内档案...")
+            logger.info(
+                f"{log_msg_header}: 成功获取到 {len(group_list)} 个群聊，开始逐个查询群内档案..."
+            )
 
             for group in group_list:
                 group_id = str(group.get("group_id"))
@@ -329,13 +341,16 @@ class GetBotProfileHandler(BaseActionHandler):
                         "title": title,
                         "role": role,
                     }
-                    logger.debug(f"{log_msg_header} > 群({group_id})档案获取成功: 名片='{card}'")
+                    logger.debug(
+                        f"{log_msg_header} > 群({group_id})档案获取成功: 名片='{card}'"
+                    )
                 else:
-                    logger.warning(f"{log_msg_header} > 未能获取到群 {group_id} 内的机器人档案。")
+                    logger.warning(
+                        f"{log_msg_header} > 未能获取到群 {group_id} 内的机器人档案。"
+                    )
 
             logger.info(f"{log_msg_header}: 所有群聊档案查询完毕，安检完成！")
             return True, "成功获取机器人信息（包括所有群聊档案）", profile_data
-
 
         except Exception as e:
             logger.error(
