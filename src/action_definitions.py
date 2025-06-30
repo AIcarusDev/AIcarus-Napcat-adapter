@@ -8,7 +8,12 @@ import random
 # AIcarus & Napcat 相关导入
 from aicarus_protocols import Event, Seg, ConversationType
 from .logger import logger
-from .utils import napcat_get_self_info, napcat_get_member_info, napcat_get_group_list, napcat_get_group_info
+from .utils import (
+    napcat_get_self_info,
+    napcat_get_member_info,
+    napcat_get_group_list,
+    napcat_get_group_info,
+)
 from .config import get_config
 
 if TYPE_CHECKING:
@@ -224,52 +229,81 @@ class GetBotProfileHandler(BaseActionHandler):
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
         action_id = event.event_id
-        logger.info(f"[{action_id}] 开始执行 GetBotProfileHandler (上线安检)...")
+        # 从核心的请求中，淫荡地偷窥它想要哪个群的档案
+        specific_group_id = action_seg.data.get("group_id")
+
+        log_msg_header = f"[{action_id}] GetBotProfileHandler"
+        if specific_group_id:
+            log_msg_header += f" (for group: {specific_group_id})"
+        else:
+            log_msg_header += " (Full Scan)"
+        
+        logger.info(f"{log_msg_header}: 开始执行...")
 
         if not send_handler.server_connection:
-            logger.error(f"[{action_id}] 执行失败：与 Napcat 的连接已断开。")
+            logger.error(f"{log_msg_header}: 执行失败：与 Napcat 的连接已断开。")
             return False, "与 Napcat 的连接已断开", {}
 
         try:
-            # 1. 获取机器人自身的全局信息 (QQ号，昵称)
-            logger.info(f"[{action_id}] 正在获取机器人全局信息...")
+            # 1. 获取机器人自身的全局信息 (QQ号，昵称)，这是必须的
             self_info = await napcat_get_self_info(send_handler.server_connection)
             if not self_info or not self_info.get("user_id"):
-                logger.error(
-                    f"[{action_id}] 获取机器人全局信息失败。API返回: {self_info}"
-                )
+                logger.error(f"{log_msg_header}: 获取机器人全局信息失败。API返回: {self_info}")
                 return False, "获取机器人自身信息失败", {}
 
             bot_id = str(self_info["user_id"])
             bot_nickname = self_info.get("nickname", "")
+            
+            # 如果核心只想玩一对一，那我们就只给他一个人的快感
+            if specific_group_id:
+                logger.info(f"{log_msg_header}: 正在为指定群聊 {specific_group_id} 获取档案...")
+                member_info = await napcat_get_member_info(
+                    send_handler.server_connection, specific_group_id, bot_id
+                )
+                if not member_info:
+                    logger.warning(f"{log_msg_header}: 未能获取到群 {specific_group_id} 内的机器人档案。")
+                    return False, f"未能获取群 {specific_group_id} 内的档案", {}
+
+                card = member_info.get("card") or bot_nickname
+                title = member_info.get("title", "")
+                role = "member"
+                napcat_role = member_info.get("role")
+                if napcat_role == "owner":
+                    role = "owner"
+                elif napcat_role == "admin":
+                    role = "admin"
+                
+                # 只构建这个群的档案，多么纯洁！
+                single_profile_data = {
+                    "user_id": bot_id,
+                    "nickname": bot_nickname,
+                    "card": card,
+                    "title": title,
+                    "role": role,
+                }
+                logger.info(f"{log_msg_header}: 指定群聊档案获取成功。")
+                return True, "成功获取指定群聊的机器人档案", single_profile_data
+
+            # --- 如果没指定群，才开始下面的淫乱群P（全身检查） ---
             config = get_config()
             platform = config.core_platform_id
-            logger.info(
-                f"[{action_id}] 成功获取机器人全局信息: ID={bot_id}, Nickname={bot_nickname}"
-            )
+            logger.info(f"{log_msg_header}: 成功获取机器人全局信息: ID={bot_id}, Nickname={bot_nickname}")
 
-            # 2. 准备最终要返回给 Core 的数据结构
             profile_data = {
                 "user_id": bot_id,
                 "nickname": bot_nickname,
                 "platform": platform,
-                "groups": {},  # <-- 看这里！它创建了一个空的 groups 字典！
+                "groups": {},
             }
 
-            # 3. 获取机器人加入的所有群聊列表
-            logger.info(f"[{action_id}] 正在获取机器人所在的群聊列表...")
+            logger.info(f"{log_msg_header}: 正在获取机器人所在的群聊列表...")
             group_list = await napcat_get_group_list(send_handler.server_connection)
             if not group_list:
-                logger.warning(
-                    f"[{action_id}] 未获取到任何群聊列表，将只返回全局信息。"
-                )
+                logger.warning(f"{log_msg_header}: 未获取到任何群聊列表，将只返回全局信息。")
                 return True, "成功获取机器人信息（无群聊）", profile_data
 
-            logger.info(
-                f"[{action_id}] 成功获取到 {len(group_list)} 个群聊，开始逐个查询群内档案..."
-            )
+            logger.info(f"{log_msg_header}: 成功获取到 {len(group_list)} 个群聊，开始逐个查询群内档案...")
 
-            # 4. 遍历所有群，获取机器人在每个群里的名片、头衔等信息
             for group in group_list:
                 group_id = str(group.get("group_id"))
                 group_name = group.get("group_name", "未知群名")
@@ -289,29 +323,26 @@ class GetBotProfileHandler(BaseActionHandler):
                     elif napcat_role == "admin":
                         role = "admin"
 
-                    # 把这个群的信息存到 groups 字典里！
                     profile_data["groups"][group_id] = {
                         "group_name": group_name,
                         "card": card,
                         "title": title,
                         "role": role,
                     }
-                    logger.debug(
-                        f"[{action_id}] > 群({group_id})档案获取成功: 名片='{card}'"
-                    )
+                    logger.debug(f"{log_msg_header} > 群({group_id})档案获取成功: 名片='{card}'")
                 else:
-                    logger.warning(
-                        f"[{action_id}] > 未能获取到群 {group_id} 内的机器人档案。"
-                    )
+                    logger.warning(f"{log_msg_header} > 未能获取到群 {group_id} 内的机器人档案。")
 
-            logger.info(f"[{action_id}] 所有群聊档案查询完毕，安检完成！")
+            logger.info(f"{log_msg_header}: 所有群聊档案查询完毕，安检完成！")
             return True, "成功获取机器人信息（包括所有群聊档案）", profile_data
+
 
         except Exception as e:
             logger.error(
                 f"[{action_id}] 执行获取机器人信息时出现异常: {e}", exc_info=True
             )
             return False, f"执行获取机器人信息时出现异常: {e}", {}
+
 
 class GetGroupInfoHandler(BaseActionHandler):
     """处理获取群聊信息这个姿势，把它的底细都扒光~"""
@@ -336,7 +367,9 @@ class GetGroupInfoHandler(BaseActionHandler):
         if not send_handler.server_connection:
             return False, "和 Napcat 的连接断开了，查不了了...", {}
 
-        group_info_data = await napcat_get_group_info(send_handler.server_connection, group_id)
+        group_info_data = await napcat_get_group_info(
+            send_handler.server_connection, group_id
+        )
 
         if group_info_data:
             logger.info(f"成功获取到群 {group_id} 的信息: {group_info_data}")
@@ -350,7 +383,9 @@ class GetGroupInfoHandler(BaseActionHandler):
             }
             return True, "群信息已成功获取！", details_for_response
         else:
-            error_msg = f"获取群 {group_id} 的信息失败了，可能是机器人不在群里，或者API出错了。"
+            error_msg = (
+                f"获取群 {group_id} 的信息失败了，可能是机器人不在群里，或者API出错了。"
+            )
             logger.warning(error_msg)
             return False, error_msg, {}
 
