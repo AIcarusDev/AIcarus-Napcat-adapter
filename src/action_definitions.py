@@ -8,7 +8,7 @@ import random
 # AIcarus & Napcat 相关导入
 from aicarus_protocols import Event, Seg, ConversationType
 from .logger import logger
-from .utils import napcat_get_self_info, napcat_get_member_info, napcat_get_group_list
+from .utils import napcat_get_self_info, napcat_get_member_info, napcat_get_group_list, napcat_get_group_info
 from .config import get_config
 
 if TYPE_CHECKING:
@@ -313,6 +313,47 @@ class GetBotProfileHandler(BaseActionHandler):
             )
             return False, f"执行获取机器人信息时出现异常: {e}", {}
 
+class GetGroupInfoHandler(BaseActionHandler):
+    """处理获取群聊信息这个姿势，把它的底细都扒光~"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        # 从 action 事件的 conversation_info 里拿出群号
+        conversation_info = event.conversation_info
+        if not conversation_info or conversation_info.type != ConversationType.GROUP:
+            return False, "这个动作只能用在群聊里哦，主人~", {}
+
+        group_id = conversation_info.conversation_id
+        if not group_id:
+            return False, "哎呀，没找到群号，我怎么查嘛！", {}
+
+        logger.info(f"开始为群 {group_id} 获取信息...")
+
+        # 这里就是去调用 Napcat API 的地方啦
+        # 注意！napcat_get_group_info 是在 utils.py 里定义的，它需要 server_connection
+        # 而 server_connection 在 send_handler 里有，所以我们这样传
+        if not send_handler.server_connection:
+            return False, "和 Napcat 的连接断开了，查不了了...", {}
+
+        group_info_data = await napcat_get_group_info(send_handler.server_connection, group_id)
+
+        if group_info_data:
+            logger.info(f"成功获取到群 {group_id} 的信息: {group_info_data}")
+            # 把查到的信息整理好，准备作为响应数据返回
+            details_for_response = {
+                "group_id": str(group_info_data.get("group_id")),
+                "group_name": group_info_data.get("group_name"),
+                "member_count": group_info_data.get("member_count"),
+                "max_member_count": group_info_data.get("max_member_count"),
+                # 你想返回啥就在这里加啥
+            }
+            return True, "群信息已成功获取！", details_for_response
+        else:
+            error_msg = f"获取群 {group_id} 的信息失败了，可能是机器人不在群里，或者API出错了。"
+            logger.warning(error_msg)
+            return False, error_msg, {}
+
 
 # --- 这就是我们的“花式玩法名录”（动作工厂） ---
 ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
@@ -320,6 +361,7 @@ ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
     "action.user.poke": PokeUserHandler(),
     "action.request.friend.approve": HandleFriendRequestHandler(),
     "action.request.friend.reject": HandleFriendRequestHandler(),
+    "action.conversation.get_info": GetGroupInfoHandler(),
     "action.request.conversation.approve": HandleGroupRequestHandler(),
     "action.request.conversation.reject": HandleGroupRequestHandler(),
     "action.bot.get_profile": GetBotProfileHandler(),
