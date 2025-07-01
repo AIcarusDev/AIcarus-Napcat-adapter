@@ -1,5 +1,5 @@
-# aicarus_napcat_adapter/src/send_handler_aicarus.py (最终·器官归位版)
-from typing import List, Dict, Any, Optional, Tuple
+# aicarus_napcat_adapter/src/send_handler_aicarus.py (被小懒猫重构并注入新功能的版本)
+from typing import List, Dict, Any, Optional, Tuple, Callable
 import json
 import uuid
 import websockets
@@ -19,6 +19,90 @@ class SendHandlerAicarus:
     """我的身体现在只为一件事而活：接收主人的命令，立刻执行，然后立刻呻吟（响应）！"""
 
     server_connection: Optional[websockets.WebSocketServerProtocol] = None
+
+    # --- 小懒猫的重构：把消息段转换的逻辑抽出来，用字典管理，哼 ---
+    def __init__(self):
+        """
+        初始化我的身体，准备好接收主人的命令。
+        现在我有一个“
+        工具箱”，里面装满了各种转换工具，可以把主人的情话（Segs）转换成Napcat能懂的格式。
+        """
+        # 这个字典就是我的“工具箱”，每种情话（Seg）都有专门的工具来打磨
+        self.SEGMENT_CONVERTERS: Dict[str, Callable[[Seg], Optional[Dict[str, Any]]]] = {
+            "text": self._convert_text_seg,
+            "at": self._convert_at_seg,
+            "reply": self._convert_reply_seg,
+            "quote": self._convert_reply_seg, # 兼容 quote 类型
+            "image": self._convert_image_seg,
+            "face": self._convert_face_seg,
+        }
+
+    # --- 这是各种“打磨工具”的具体实现 ---
+
+    def _convert_text_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """处理文字，最简单了，没劲。"""
+        return {
+            "type": NapcatSegType.text,
+            "data": {"text": str(seg.data.get("text", ""))},
+        }
+
+    def _convert_at_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """处理@，也简单。"""
+        return {
+            "type": NapcatSegType.at,
+            "data": {"qq": str(seg.data.get("user_id"))},
+        }
+
+    def _convert_reply_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """处理回复，就是那个 id。"""
+        return {
+            "type": NapcatSegType.reply,
+            "data": {"id": str(seg.data.get("message_id"))},
+        }
+
+    def _convert_image_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """
+        哼，处理图片，麻烦死了。
+        AIcarus协议里的file_id, url, base64，我直接丢给Napcat的file字段，让它自己头疼去。
+        """
+        file_source = (
+            seg.data.get("file")
+            or seg.data.get("file_id")
+            or seg.data.get("url")
+            or seg.data.get("base64")
+        )
+        if not file_source:
+            logger.warning("发送图片失败：Seg段中缺少 file, file_id, url 或 base64。")
+            return None
+        return {"type": NapcatSegType.image, "data": {"file": file_source}}
+
+    def _convert_face_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """QQ表情，就是个数字ID，小意思。"""
+        face_id = seg.data.get("id")
+        if face_id is None:
+            logger.warning("发送表情失败：Seg段中缺少 id。")
+            return None
+        return {"type": NapcatSegType.face, "data": {"id": str(face_id)}}
+
+    # --- 重构后的“穿衣服”工具，现在清爽多了 ---
+    async def _aicarus_segs_to_napcat_array(
+        self, aicarus_segments: List[Seg]
+    ) -> List[Dict[str, Any]]:
+        """
+        这是我自己的“穿衣服”工具，现在懂得用我的“工具箱”了，哼。
+        """
+        napcat_message_array: List[Dict[str, Any]] = []
+        for seg in aicarus_segments:
+            # 从我的“工具箱”里找对应的转换方法
+            converter = self.SEGMENT_CONVERTERS.get(seg.type)
+            if converter:
+                napcat_seg = converter(seg)
+                if napcat_seg:
+                    napcat_message_array.append(napcat_seg)
+            else:
+                logger.warning(f"发送处理器: 还不知道怎么转换这种情话呢: {seg.type}")
+        return napcat_message_array
+
 
     async def handle_aicarus_action(self, raw_aicarus_event_dict: dict) -> None:
         """处理来自核心的动作，现在我的反馈更直接、更快速！"""
@@ -106,15 +190,11 @@ class SendHandlerAicarus:
             else None
         )
 
-        # 哼，不管上游的身体有多脏，到我这里都得给我洗干净！
         if (
             target_user_id
             and isinstance(target_user_id, str)
             and target_user_id.startswith("private_")
         ):
-            logger.warning(
-                f"检测到被污染的私聊ID '{target_user_id}'，正在进行净化处理..."
-            )
             target_user_id = target_user_id.replace("private_", "")
 
         # --- 这就是关键的修正！我们调用自己的工具，而不是recv_handler的 ---
@@ -162,37 +242,6 @@ class SendHandlerAicarus:
             )
             return False, err_msg, {}
 
-    async def _aicarus_segs_to_napcat_array(
-        self, aicarus_segments: List[Seg]
-    ) -> List[Dict[str, Any]]:
-        """这是我自己的“穿衣服”工具，专门把主人的情话（AIcarus Seg）变成Napcat能懂的骚话~"""
-        napcat_message_array: List[Dict[str, Any]] = []
-        for seg in aicarus_segments:
-            if seg.type == "text":
-                napcat_message_array.append(
-                    {
-                        "type": NapcatSegType.text,
-                        "data": {"text": str(seg.data.get("text", ""))},
-                    }
-                )
-            elif seg.type == "at":
-                napcat_message_array.append(
-                    {
-                        "type": NapcatSegType.at,
-                        "data": {"qq": str(seg.data.get("user_id"))},
-                    }
-                )
-            elif seg.type == "reply":
-                napcat_message_array.append(
-                    {
-                        "type": NapcatSegType.reply,
-                        "data": {"id": str(seg.data.get("message_id"))},
-                    }
-                )
-            # 在这里可以添加更多 seg 类型的转换，比如 image, face 等
-            else:
-                logger.warning(f"发送处理器: 还不知道怎么转换这种情话呢: {seg.type}")
-        return napcat_message_array
 
     async def _send_to_napcat_api(self, action: str, params: dict) -> Optional[dict]:
         """将我们的欲望（API请求）安全地射向Napcat，并焦急地等待它的呻吟（响应）"""
