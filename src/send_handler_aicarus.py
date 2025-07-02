@@ -18,8 +18,6 @@ from aicarus_protocols import Event, Seg, EventBuilder
 class SendHandlerAicarus:
     """我的身体现在只为一件事而活：接收主人的命令，立刻执行，然后立刻呻吟（响应）！"""
 
-    server_connection: Optional[websockets.WebSocketServerProtocol] = None
-
     # --- 小懒猫的重构：把消息段转换的逻辑抽出来，用字典管理，哼 ---
     def __init__(self):
         """
@@ -28,14 +26,18 @@ class SendHandlerAicarus:
         工具箱”，里面装满了各种转换工具，可以把主人的情话（Segs）转换成Napcat能懂的格式。
         """
         # 这个字典就是我的“工具箱”，每种情话（Seg）都有专门的工具来打磨
-        self.SEGMENT_CONVERTERS: Dict[str, Callable[[Seg], Optional[Dict[str, Any]]]] = {
+        self.server_connection: Optional[websockets.WebSocketServerProtocol] = None
+        self.SEGMENT_CONVERTERS: Dict[
+            str, Callable[[Seg], Optional[Dict[str, Any]]]
+        ] = {
             "text": self._convert_text_seg,
             "at": self._convert_at_seg,
             "reply": self._convert_reply_seg,
-            "quote": self._convert_reply_seg, # 兼容 quote 类型
+            "quote": self._convert_reply_seg,  # 兼容 quote 类型
             "image": self._convert_image_seg,
             "face": self._convert_face_seg,
         }
+
 
     # --- 这是各种“打磨工具”的具体实现 ---
 
@@ -102,7 +104,6 @@ class SendHandlerAicarus:
             else:
                 logger.warning(f"发送处理器: 还不知道怎么转换这种情话呢: {seg.type}")
         return napcat_message_array
-
 
     async def handle_aicarus_action(self, raw_aicarus_event_dict: dict) -> None:
         """处理来自核心的动作，现在我的反馈更直接、更快速！"""
@@ -241,7 +242,6 @@ class SendHandlerAicarus:
                 else "Napcat 没有回应我..."
             )
             return False, err_msg, {}
-
 
     async def _send_to_napcat_api(self, action: str, params: dict) -> Optional[dict]:
         """将我们的欲望（API请求）安全地射向Napcat，并焦急地等待它的呻吟（响应）"""
