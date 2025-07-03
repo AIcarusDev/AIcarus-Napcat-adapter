@@ -70,3 +70,12 @@ AIcarus-Napcat-adapter/
     ├── message_queue.py       # 消息队列：管理内部事件流和 API 响应的匹配
     ├── napcat_definitions.py  # Napcat 定义：包含 Napcat 特有的常量和枚举
     └── utils.py               # 工具函数：封装了通用的 Napcat API 调用和图像处理等功能
+```
+
+## 🤝 贡献代码
+
+我们欢迎任何形式的贡献！如果您有任何问题、功能建议或发现了 bug，请通过提交 Issue 或 Pull Request 的方式告知我们。
+
+## 许可证
+
+本项目基于 [MIT](LICENSE) 许可证开源。
