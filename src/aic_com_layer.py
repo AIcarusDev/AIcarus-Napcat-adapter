@@ -1,4 +1,4 @@
-# AIcarus Napcat Adapter - Communication Layer for Protocol v1.4.0
+# AIcarus Napcat Adapter - Communication Layer for Protocol v1.5.1
 # Adapter 作为客户端，连接到 Core WebSocket 服务器的通信层
 import time
 import asyncio
@@ -493,7 +493,7 @@ async def aic_stop_com() -> None:
 if __name__ == "__main__":
 
     async def main_test():
-        logger.info("--- Core 通信层客户端测试 (v1.4.0) ---")
+        logger.info("--- Core 通信层客户端测试 (v2.0.0) ---")
 
         async def dummy_core_event_handler(event_dict: Dict[str, Any]):
             logger.info(f"[TEST HANDLER] 从 Core 收到事件: {event_dict}")
@@ -515,7 +515,7 @@ if __name__ == "__main__":
                 user_info=None,
                 conversation_info=None,
                 content=[
-                    SegBuilder.text("你好，Core！来自 Adapter 的测试消息 (v1.4.0)。")
+                    SegBuilder.text("你好，Core！来自 Adapter 的测试消息 (v2.0.0)。")
                 ],
                 raw_data=json.dumps({"source": "adapter_test", "test": True}),
             )

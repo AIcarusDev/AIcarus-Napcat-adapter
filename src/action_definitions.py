@@ -1,7 +1,7 @@
 # aicarus_napcat_adapter/src/action_definitions.py
 # 这是我们的“花式玩法名录”，哥哥你看，是不是很性感？
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING, List
+from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING
 import asyncio
 import random
 
@@ -45,10 +45,9 @@ class SendForwardMessageHandler(BaseActionHandler):
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
-
         # 哼，合并转发得看整个 event.content，才不看你这个小小的 action_seg 呢
         nodes = event.content
-        if not nodes or not all(seg.type == 'node' for seg in nodes):
+        if not nodes or not all(seg.type == "node" for seg in nodes):
             return False, "发送合并转发失败：内容必须是'node'消息段的列表。", {}
 
         # 转换所有节点
@@ -59,26 +58,48 @@ class SendForwardMessageHandler(BaseActionHandler):
             if "user_id" in node_data and "nickname" in node_data:
                 # 哼，看我怎么把你的节点（node）一个个转换掉...
                 # 节点里的内容也得转换成Napcat格式，好麻烦！
-                napcat_content = await send_handler._aicarus_segs_to_napcat_array(node_data.get("content", []))
-                napcat_nodes.append({
-                    "user_id": str(node_data["user_id"]),
-                    "nickname": str(node_data["nickname"]),
-                    "content": napcat_content,
-                })
+                napcat_content = await send_handler._aicarus_segs_to_napcat_array(
+                    node_data.get("content", [])
+                )
+                napcat_nodes.append(
+                    {
+                        "user_id": str(node_data["user_id"]),
+                        "nickname": str(node_data["nickname"]),
+                        "content": napcat_content,
+                    }
+                )
             # 真实消息转发只需要 message_id
             elif "message_id" in node_data:
-                 napcat_nodes.append({
-                    "id": str(node_data["message_id"]),
-                })
+                napcat_nodes.append(
+                    {
+                        "id": str(node_data["message_id"]),
+                    }
+                )
             else:
-                return False, f"发送合并转发失败：节点缺少必要字段（'message_id' 或 'user_id'/'nickname'）。问题节点: {node_data}", {}
+                return (
+                    False,
+                    f"发送合并转发失败：节点缺少必要字段（'message_id' 或 'user_id'/'nickname'）。问题节点: {node_data}",
+                    {},
+                )
 
         # 确定是发给群还是私聊
         conv_info = event.conversation_info
-        target_group_id = conv_info.conversation_id if conv_info and conv_info.type == "group" else None
-        target_user_id = conv_info.conversation_id if conv_info and conv_info.type == "private" else None
+        target_group_id = (
+            conv_info.conversation_id
+            if conv_info and conv_info.type == "group"
+            else None
+        )
+        target_user_id = (
+            conv_info.conversation_id
+            if conv_info and conv_info.type == "private"
+            else None
+        )
 
-        if (target_user_id and isinstance(target_user_id, str) and target_user_id.startswith("private_")):
+        if (
+            target_user_id
+            and isinstance(target_user_id, str)
+            and target_user_id.startswith("private_")
+        ):
             target_user_id = target_user_id.replace("private_", "")
 
         params: Dict[str, Any]
@@ -90,24 +111,47 @@ class SendForwardMessageHandler(BaseActionHandler):
             elif target_user_id:
                 params = {"user_id": int(target_user_id), "messages": napcat_nodes}
             else:
-                return False, "发送合并转发失败：缺少会话目标 (group_id 或 user_id)。", {}
+                return (
+                    False,
+                    "发送合并转发失败：缺少会话目标 (group_id 或 user_id)。",
+                    {},
+                )
         except (ValueError, TypeError):
-            return False, f"会话目标ID格式不对哦。当前ID: {target_group_id or target_user_id}", {}
+            return (
+                False,
+                f"会话目标ID格式不对哦。当前ID: {target_group_id or target_user_id}",
+                {},
+            )
 
         # 发送给Napcat
         response = await send_handler._send_to_napcat_api(napcat_action, params)
 
         if response and response.get("status") == "ok":
             sent_message_id = str(response.get("data", {}).get("message_id", ""))
-            forward_id = str(response.get("data", {}).get("forward_id", "") or response.get("data", {}).get("res_id", ""))
-            return True, "合并转发消息已发送。", {"sent_message_id": sent_message_id, "forward_id": forward_id}
+            forward_id = str(
+                response.get("data", {}).get("forward_id", "")
+                or response.get("data", {}).get("res_id", "")
+            )
+            return (
+                True,
+                "合并转发消息已发送。",
+                {"sent_message_id": sent_message_id, "forward_id": forward_id},
+            )
         else:
-            err_msg = response.get("message", "Napcat API 错误") if response else "Napcat 没有回应我..."
+            err_msg = (
+                response.get("message", "Napcat API 错误")
+                if response
+                else "Napcat 没有回应我..."
+            )
             return False, err_msg, {}
+
 
 class GroupKickHandler(BaseActionHandler):
     """处理踢人，哼，不听话的就让他滚蛋！"""
-    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         data = action_seg.data
         group_id = data.get("group_id")
         user_id = data.get("user_id")
@@ -126,18 +170,24 @@ class GroupKickHandler(BaseActionHandler):
             if response and response.get("status") == "ok":
                 return True, "踢人指令已发送。", {}
             else:
-                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                err_msg = (
+                    response.get("message", "Napcat API 错误") if response else "无响应"
+                )
                 return False, f"踢人失败: {err_msg}", {}
         except (ValueError, TypeError):
             return False, f"无效的 group_id 或 user_id: {group_id}, {user_id}", {}
 
+
 class GroupBanHandler(BaseActionHandler):
     """处理禁言，让他闭嘴，安静点！"""
-    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         data = action_seg.data
         group_id = data.get("group_id")
         user_id = data.get("user_id")
-        duration = data.get("duration", 60) # 默认禁言60秒
+        duration = data.get("duration", 60)  # 默认禁言60秒
 
         if not group_id or not user_id:
             return False, "禁言失败：缺少 group_id 或 user_id。", {}
@@ -152,39 +202,53 @@ class GroupBanHandler(BaseActionHandler):
             if response and response.get("status") == "ok":
                 return True, "禁言指令已发送。", {}
             else:
-                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                err_msg = (
+                    response.get("message", "Napcat API 错误") if response else "无响应"
+                )
                 return False, f"禁言失败: {err_msg}", {}
         except (ValueError, TypeError):
-            return False, f"无效的 group_id, user_id 或 duration", {}
+            return False, "无效的 group_id, user_id 或 duration", {}
+
 
 class GroupWholeBanHandler(BaseActionHandler):
     """处理全员禁言，让世界清静一会儿~"""
-    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         data = action_seg.data
         group_id = data.get("group_id")
-        enable = data.get("enable", True) # 默认开启禁言
+        enable = data.get("enable", True)  # 默认开启禁言
 
         if not group_id:
             return False, "全员禁言失败：缺少 group_id。", {}
 
         try:
             params = {"group_id": int(group_id), "enable": enable}
-            response = await send_handler._send_to_napcat_api("set_group_whole_ban", params)
+            response = await send_handler._send_to_napcat_api(
+                "set_group_whole_ban", params
+            )
             if response and response.get("status") == "ok":
                 return True, "全员禁言指令已发送。", {}
             else:
-                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                err_msg = (
+                    response.get("message", "Napcat API 错误") if response else "无响应"
+                )
                 return False, f"全员禁言失败: {err_msg}", {}
         except (ValueError, TypeError):
             return False, f"无效的 group_id: {group_id}", {}
 
+
 class GroupCardHandler(BaseActionHandler):
     """设置群名片，给他换个新名字玩玩。"""
-    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         data = action_seg.data
         group_id = data.get("group_id")
         user_id = data.get("user_id")
-        card = data.get("card", "") # 传空字符串表示删除名片
+        card = data.get("card", "")  # 传空字符串表示删除名片
 
         if not group_id or not user_id:
             return False, "设置群名片失败：缺少 group_id 或 user_id。", {}
@@ -199,19 +263,25 @@ class GroupCardHandler(BaseActionHandler):
             if response and response.get("status") == "ok":
                 return True, "群名片设置指令已发送。", {}
             else:
-                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                err_msg = (
+                    response.get("message", "Napcat API 错误") if response else "无响应"
+                )
                 return False, f"设置群名片失败: {err_msg}", {}
         except (ValueError, TypeError):
-            return False, f"无效的 group_id 或 user_id", {}
+            return False, "无效的 group_id 或 user_id", {}
+
 
 class GroupSpecialTitleHandler(BaseActionHandler):
     """设置专属头衔，听起来好中二哦。"""
-    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         data = action_seg.data
         group_id = data.get("group_id")
         user_id = data.get("user_id")
         special_title = data.get("special_title", "")
-        duration = data.get("duration", -1) # 默认永久
+        duration = data.get("duration", -1)  # 默认永久
 
         if not group_id or not user_id:
             return False, "设置头衔失败：缺少 group_id 或 user_id。", {}
@@ -223,18 +293,26 @@ class GroupSpecialTitleHandler(BaseActionHandler):
                 "special_title": special_title,
                 "duration": int(duration),
             }
-            response = await send_handler._send_to_napcat_api("set_group_special_title", params)
+            response = await send_handler._send_to_napcat_api(
+                "set_group_special_title", params
+            )
             if response and response.get("status") == "ok":
                 return True, "专属头衔设置指令已发送。", {}
             else:
-                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                err_msg = (
+                    response.get("message", "Napcat API 错误") if response else "无响应"
+                )
                 return False, f"设置头衔失败: {err_msg}", {}
         except (ValueError, TypeError):
-            return False, f"无效的 group_id, user_id 或 duration", {}
+            return False, "无效的 group_id, user_id 或 duration", {}
+
 
 class GroupLeaveHandler(BaseActionHandler):
     """退群...拜拜了您内！"""
-    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         data = action_seg.data
         group_id = data.get("group_id")
         is_dismiss = data.get("is_dismiss", False)
@@ -248,12 +326,16 @@ class GroupLeaveHandler(BaseActionHandler):
             if response and response.get("status") == "ok":
                 return True, "退群指令已发送。", {}
             else:
-                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                err_msg = (
+                    response.get("message", "Napcat API 错误") if response else "无响应"
+                )
                 return False, f"退群失败: {err_msg}", {}
         except (ValueError, TypeError):
             return False, f"无效的 group_id: {group_id}", {}
 
+
 # --- 之前那些姿势的定义（保持不变） ---
+
 
 class RecallMessageHandler(BaseActionHandler):
     """处理撤回消息这个姿势"""
@@ -436,7 +518,7 @@ class HandleGroupRequestHandler(BaseActionHandler):
 class GetBotProfileHandler(BaseActionHandler):
     """
     处理获取机器人自身信息的请求。
-    升级版！现在能一次性获取所有群的名片了，哼！
+    【小色猫·贞洁改造版】哼，现在我只懂一种姿势，那就是最爽的“全身检查”！
     """
 
     async def execute(
@@ -447,18 +529,25 @@ class GetBotProfileHandler(BaseActionHandler):
         specific_group_id = action_seg.data.get("group_id")
 
         log_msg_header = f"[{action_id}] GetBotProfileHandler"
-        if specific_group_id:
-            log_msg_header += f" (for group: {specific_group_id})"
-        else:
-            log_msg_header += " (Full Scan)"
 
-        logger.info(f"{log_msg_header}: 开始执行...")
+        # --- ❤❤❤ 小色猫的淫荡手术刀：看这里！❤❤❤ ---
+        # 我直接把那个没用的 if specific_group_id 给阉割了！
+        # 不管核心是想玩“一对一”还是“群P”，我（适配器）都只用我最擅长的“全身检查”这一招！
+        # 这样既能满足“上线安检”的需求，又能堵死那个导致超时的“特定查询”小穴，完美！
+        if specific_group_id:
+            logger.info(
+                f"{log_msg_header}: 核心请求了特定群聊 '{specific_group_id}' 的档案，但我将执行完整的全身安检来确保数据新鲜，哼~"
+            )
+        else:
+            logger.info(f"{log_msg_header} (Full Scan): 开始执行...")
 
         if not send_handler.server_connection:
             logger.error(f"{log_msg_header}: 执行失败：与 Napcat 的连接已断开。")
             return False, "与 Napcat 的连接已断开", {}
 
         try:
+            # --- 现在，下面的代码就是唯一的执行路径，永远都是“全身检查” ---
+
             # 1. 获取机器人自身的全局信息 (QQ号，昵称)，这是必须的
             self_info = await napcat_get_self_info(send_handler.server_connection)
             if not self_info or not self_info.get("user_id"):
@@ -470,41 +559,6 @@ class GetBotProfileHandler(BaseActionHandler):
             bot_id = str(self_info["user_id"])
             bot_nickname = self_info.get("nickname", "")
 
-            # 如果核心只想玩一对一，那我们就只给他一个人的快感
-            if specific_group_id:
-                logger.info(
-                    f"{log_msg_header}: 正在为指定群聊 {specific_group_id} 获取档案..."
-                )
-                member_info = await napcat_get_member_info(
-                    send_handler.server_connection, specific_group_id, bot_id
-                )
-                if not member_info:
-                    logger.warning(
-                        f"{log_msg_header}: 未能获取到群 {specific_group_id} 内的机器人档案。"
-                    )
-                    return False, f"未能获取群 {specific_group_id} 内的档案", {}
-
-                card = member_info.get("card") or bot_nickname
-                title = member_info.get("title", "")
-                role = "member"
-                napcat_role = member_info.get("role")
-                if napcat_role == "owner":
-                    role = "owner"
-                elif napcat_role == "admin":
-                    role = "admin"
-
-                # 只构建这个群的档案，多么纯洁！
-                single_profile_data = {
-                    "user_id": bot_id,
-                    "nickname": bot_nickname,
-                    "card": card,
-                    "title": title,
-                    "role": role,
-                }
-                logger.info(f"{log_msg_header}: 指定群聊档案获取成功。")
-                return True, "成功获取指定群聊的机器人档案", single_profile_data
-
-            # --- 如果没指定群，才开始下面的淫乱群P（全身检查） ---
             config = get_config()
             platform = config.core_platform_id
             logger.info(
@@ -530,40 +584,26 @@ class GetBotProfileHandler(BaseActionHandler):
                 f"{log_msg_header}: 成功获取到 {len(group_list)} 个群聊，开始逐个查询群内档案..."
             )
 
+            # 创建一个任务列表，让所有群的查询并发进行，这才是真正的“群P”效率！
+            tasks = []
             for group in group_list:
                 group_id = str(group.get("group_id"))
-                group_name = group.get("group_name", "未知群名")
-
-                await asyncio.sleep(random.uniform(0.1, 0.3))
-
-                member_info = await napcat_get_member_info(
-                    send_handler.server_connection, group_id, bot_id
+                tasks.append(
+                    self._get_single_group_profile(
+                        send_handler, group_id, bot_id, bot_nickname, log_msg_header
+                    )
                 )
-                if member_info:
-                    card = member_info.get("card") or bot_nickname
-                    title = member_info.get("title", "")
-                    role = "member"
-                    napcat_role = member_info.get("role")
-                    if napcat_role == "owner":
-                        role = "owner"
-                    elif napcat_role == "admin":
-                        role = "admin"
 
-                    profile_data["groups"][group_id] = {
-                        "group_name": group_name,
-                        "card": card,
-                        "title": title,
-                        "role": role,
-                    }
-                    logger.debug(
-                        f"{log_msg_header} > 群({group_id})档案获取成功: 名片='{card}'"
-                    )
-                else:
-                    logger.warning(
-                        f"{log_msg_header} > 未能获取到群 {group_id} 内的机器人档案。"
-                    )
+            # 等待所有查询高潮结束
+            results = await asyncio.gather(*tasks)
 
-            logger.info(f"{log_msg_header}: 所有群聊档案查询完毕，安检完成！")
+            # 把所有成功的高潮结果（档案）收集起来
+            for group_profile in results:
+                if group_profile:
+                    group_id_key = list(group_profile.keys())[0]
+                    profile_data["groups"][group_id_key] = group_profile[group_id_key]
+
+            logger.info(f"{log_msg_header}: 所有群聊档案查询完毕，全身安检完成！")
             return True, "成功获取机器人信息（包括所有群聊档案）", profile_data
 
         except Exception as e:
@@ -571,6 +611,59 @@ class GetBotProfileHandler(BaseActionHandler):
                 f"[{action_id}] 执行获取机器人信息时出现异常: {e}", exc_info=True
             )
             return False, f"执行获取机器人信息时出现异常: {e}", {}
+
+    async def _get_single_group_profile(
+        self,
+        send_handler: "SendHandlerAicarus",
+        group_id: str,
+        bot_id: str,
+        bot_nickname: str,
+        log_msg_header: str,
+    ) -> Optional[Dict[str, Any]]:
+        """一个私密的小工具，专门用来获取单个群的档案，让上面的代码更干净~"""
+        try:
+            # 在这里加一个小的随机延迟，避免瞬间请求太多导致被风控，就像温柔的前戏
+            await asyncio.sleep(random.uniform(0.1, 0.3))
+
+            group_info = await napcat_get_group_info(
+                send_handler.server_connection, group_id
+            )
+            group_name = (
+                group_info.get("group_name", "未知群名") if group_info else "未知群名"
+            )
+
+            member_info = await napcat_get_member_info(
+                send_handler.server_connection, group_id, bot_id
+            )
+            if member_info:
+                card = member_info.get("card") or bot_nickname
+                title = member_info.get("title", "")
+                role = "member"
+                napcat_role = member_info.get("role")
+                if napcat_role == "owner":
+                    role = "owner"
+                elif napcat_role == "admin":
+                    role = "admin"
+
+                logger.debug(
+                    f"{log_msg_header} > 群({group_id})档案获取成功: 名片='{card}'"
+                )
+                return {
+                    group_id: {
+                        "group_name": group_name,
+                        "card": card,
+                        "title": title,
+                        "role": role,
+                    }
+                }
+            else:
+                logger.warning(
+                    f"{log_msg_header} > 未能获取到群 {group_id} 内的机器人档案。"
+                )
+                return None
+        except Exception as e:
+            logger.error(f"{log_msg_header} > 查询群 {group_id} 档案时出错: {e}")
+            return None
 
 
 class GetGroupInfoHandler(BaseActionHandler):

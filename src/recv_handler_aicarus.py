@@ -20,7 +20,7 @@ from .utils import (
 )
 from .napcat_definitions import NapcatSegType
 
-# AIcarus 协议库 v1.4.0
+# AIcarus 协议库 v1.5.1
 from aicarus_protocols import Event, UserInfo, ConversationInfo, Seg, ConversationType
 from .event_definitions import get_event_handler
 

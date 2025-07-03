@@ -1,5 +1,5 @@
-# AIcarus Napcat Adapter - Main Entry Point for Protocol v1.4.0
-# aicarus_napcat_adapter/src/main_aicarus_v1_4_0.py
+# AIcarus Napcat Adapter - Main Entry Point for Protocol v1.5.1
+# aicarus_napcat_adapter/src/main_aicarus.py
 import asyncio
 import sys
 import json
@@ -12,7 +12,7 @@ from .logger import logger
 from .recv_handler_aicarus import recv_handler_aicarus
 from .send_handler_aicarus import send_handler_aicarus
 from .config import get_config  # 添加global_config
-from .aic_com_layer import (  # 从新的 v1.4.0 通信层导入
+from .aic_com_layer import (  # 从新的 v1.5.1 通信层导入
     aic_start_com,  # 这个函数现在会启动 core_connection_client.run_forever()
     aic_stop_com,  # 这个函数会调用 core_connection_client.stop_communication()
     router_aicarus as core_router,  # router_aicarus 是 core_connection_client 的实例
@@ -25,7 +25,7 @@ from .message_queue import (
     check_stale_api_responses_periodically,
 )
 
-# v1.4.0 协议库
+# v1.5.1 协议库
 from aicarus_protocols import (
     PROTOCOL_VERSION,
 )

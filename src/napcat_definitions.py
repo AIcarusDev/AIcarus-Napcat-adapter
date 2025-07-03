@@ -84,5 +84,5 @@ class NapcatSegType:
     tts = "tts"  # 文本转语音
 
 
-# AIcarus 协议版本 - v1.5.0
-AICARUS_PROTOCOL_VERSION = "1.5.0"
+# AIcarus 协议版本 - v1.5.1
+AICARUS_PROTOCOL_VERSION = "1.5.1"

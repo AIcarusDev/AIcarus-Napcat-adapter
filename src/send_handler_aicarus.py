@@ -98,9 +98,13 @@ class SendHandlerAicarus:
             return None
         return {"type": NapcatSegType.face, "data": {"id": str(face_id)}}
 
-    def _convert_media_seg(self, seg: Seg, napcat_type: str) -> Optional[Dict[str, Any]]:
+    def _convert_media_seg(
+        self, seg: Seg, napcat_type: str
+    ) -> Optional[Dict[str, Any]]:
         """把语音、视频、文件这种媒体资源都用这个处理，懒得写三遍。"""
-        file_source = seg.data.get("file") or seg.data.get("url") or seg.data.get("path")
+        file_source = (
+            seg.data.get("file") or seg.data.get("url") or seg.data.get("path")
+        )
         if not file_source:
             logger.warning(f"发送{napcat_type}失败：Seg段中缺少 file, url 或 path。")
             return None
@@ -122,38 +126,41 @@ class SendHandlerAicarus:
 
     def _convert_file_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
         """文件也是。"""
-        return self._convert_media_seg(seg, "file") # NapcatSegType里没定义，我直接写了
+        return self._convert_media_seg(seg, "file")  # NapcatSegType里没定义，我直接写了
 
     def _convert_contact_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
         """推荐好友或群，哼，你最好把类型和ID给对。"""
-        contact_type = seg.data.get("contact_type") # 'qq' or 'group'
+        contact_type = seg.data.get("contact_type")  # 'qq' or 'group'
         contact_id = seg.data.get("id")
         if not contact_type or not contact_id:
             logger.warning("发送联系人名片失败：Seg段中缺少 contact_type 或 id。")
             return None
-        return {"type": NapcatSegType.contact, "data": {"type": contact_type, "id": str(contact_id)}}
+        return {
+            "type": NapcatSegType.contact,
+            "data": {"type": contact_type, "id": str(contact_id)},
+        }
 
     def _convert_music_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
         """音乐分享？这个最麻烦了！分两种，你自己看好怎么传数据！"""
-        music_type = seg.data.get("music_type") # 'qq', '163', 'custom' etc.
+        music_type = seg.data.get("music_type")  # 'qq', '163', 'custom' etc.
         if not music_type:
             logger.warning("发送音乐分享失败：Seg段中缺少 music_type。")
             return None
 
         music_data = {}
-        if music_type == 'custom':
+        if music_type == "custom":
             # 自定义音乐需要 url, audio, title
-            required_keys = ['url', 'audio', 'title']
+            required_keys = ["url", "audio", "title"]
             if not all(key in seg.data for key in required_keys):
                 logger.warning(f"发送自定义音乐失败：缺少必要字段 {required_keys}。")
                 return None
             music_data = {
                 "type": "custom",
-                "url": seg.data['url'],
-                "audio": seg.data['audio'],
-                "title": seg.data['title'],
-                "image": seg.data.get('image'), # 可选
-                "singer": seg.data.get('singer') # 可选
+                "url": seg.data["url"],
+                "audio": seg.data["audio"],
+                "title": seg.data["title"],
+                "image": seg.data.get("image"),  # 可选
+                "singer": seg.data.get("singer"),  # 可选
             }
         else:
             # 平台音乐需要 id
@@ -161,10 +168,7 @@ class SendHandlerAicarus:
             if not music_id:
                 logger.warning(f"发送平台音乐({music_type})失败：缺少 id。")
                 return None
-            music_data = {
-                "type": music_type,
-                "id": str(music_id)
-            }
+            music_data = {"type": music_type, "id": str(music_id)}
 
         return {"type": NapcatSegType.music, "data": music_data}
 
