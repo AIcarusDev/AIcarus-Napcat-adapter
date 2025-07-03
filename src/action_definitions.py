@@ -1,7 +1,7 @@
 # aicarus_napcat_adapter/src/action_definitions.py
 # 这是我们的“花式玩法名录”，哥哥你看，是不是很性感？
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING
+from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING, List
 import asyncio
 import random
 
@@ -39,7 +39,221 @@ class BaseActionHandler(ABC):
 
 
 # --- 现在是具体的“姿势”定义 ---
+class SendForwardMessageHandler(BaseActionHandler):
+    """处理发送合并转发消息，这个姿势有点复杂，得慢慢来~"""
 
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+
+        # 哼，合并转发得看整个 event.content，才不看你这个小小的 action_seg 呢
+        nodes = event.content
+        if not nodes or not all(seg.type == 'node' for seg in nodes):
+            return False, "发送合并转发失败：内容必须是'node'消息段的列表。", {}
+
+        # 转换所有节点
+        napcat_nodes = []
+        for node_seg in nodes:
+            node_data = node_seg.data
+            # 伪造的消息节点需要 user_id 和 nickname
+            if "user_id" in node_data and "nickname" in node_data:
+                # 哼，看我怎么把你的节点（node）一个个转换掉...
+                # 节点里的内容也得转换成Napcat格式，好麻烦！
+                napcat_content = await send_handler._aicarus_segs_to_napcat_array(node_data.get("content", []))
+                napcat_nodes.append({
+                    "user_id": str(node_data["user_id"]),
+                    "nickname": str(node_data["nickname"]),
+                    "content": napcat_content,
+                })
+            # 真实消息转发只需要 message_id
+            elif "message_id" in node_data:
+                 napcat_nodes.append({
+                    "id": str(node_data["message_id"]),
+                })
+            else:
+                return False, f"发送合并转发失败：节点缺少必要字段（'message_id' 或 'user_id'/'nickname'）。问题节点: {node_data}", {}
+
+        # 确定是发给群还是私聊
+        conv_info = event.conversation_info
+        target_group_id = conv_info.conversation_id if conv_info and conv_info.type == "group" else None
+        target_user_id = conv_info.conversation_id if conv_info and conv_info.type == "private" else None
+
+        if (target_user_id and isinstance(target_user_id, str) and target_user_id.startswith("private_")):
+            target_user_id = target_user_id.replace("private_", "")
+
+        params: Dict[str, Any]
+        # Napcat v4 的合并转发API是 send_forward_msg
+        napcat_action: str = "send_forward_msg"
+        try:
+            if target_group_id:
+                params = {"group_id": int(target_group_id), "messages": napcat_nodes}
+            elif target_user_id:
+                params = {"user_id": int(target_user_id), "messages": napcat_nodes}
+            else:
+                return False, "发送合并转发失败：缺少会话目标 (group_id 或 user_id)。", {}
+        except (ValueError, TypeError):
+            return False, f"会话目标ID格式不对哦。当前ID: {target_group_id or target_user_id}", {}
+
+        # 发送给Napcat
+        response = await send_handler._send_to_napcat_api(napcat_action, params)
+
+        if response and response.get("status") == "ok":
+            sent_message_id = str(response.get("data", {}).get("message_id", ""))
+            forward_id = str(response.get("data", {}).get("forward_id", "") or response.get("data", {}).get("res_id", ""))
+            return True, "合并转发消息已发送。", {"sent_message_id": sent_message_id, "forward_id": forward_id}
+        else:
+            err_msg = response.get("message", "Napcat API 错误") if response else "Napcat 没有回应我..."
+            return False, err_msg, {}
+
+class GroupKickHandler(BaseActionHandler):
+    """处理踢人，哼，不听话的就让他滚蛋！"""
+    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        user_id = data.get("user_id")
+        reject_add_request = data.get("reject_add_request", False)
+
+        if not group_id or not user_id:
+            return False, "踢人失败：缺少 group_id 或 user_id。", {}
+
+        try:
+            params = {
+                "group_id": int(group_id),
+                "user_id": int(user_id),
+                "reject_add_request": reject_add_request,
+            }
+            response = await send_handler._send_to_napcat_api("set_group_kick", params)
+            if response and response.get("status") == "ok":
+                return True, "踢人指令已发送。", {}
+            else:
+                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                return False, f"踢人失败: {err_msg}", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id 或 user_id: {group_id}, {user_id}", {}
+
+class GroupBanHandler(BaseActionHandler):
+    """处理禁言，让他闭嘴，安静点！"""
+    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        user_id = data.get("user_id")
+        duration = data.get("duration", 60) # 默认禁言60秒
+
+        if not group_id or not user_id:
+            return False, "禁言失败：缺少 group_id 或 user_id。", {}
+
+        try:
+            params = {
+                "group_id": int(group_id),
+                "user_id": int(user_id),
+                "duration": int(duration),
+            }
+            response = await send_handler._send_to_napcat_api("set_group_ban", params)
+            if response and response.get("status") == "ok":
+                return True, "禁言指令已发送。", {}
+            else:
+                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                return False, f"禁言失败: {err_msg}", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id, user_id 或 duration", {}
+
+class GroupWholeBanHandler(BaseActionHandler):
+    """处理全员禁言，让世界清静一会儿~"""
+    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        enable = data.get("enable", True) # 默认开启禁言
+
+        if not group_id:
+            return False, "全员禁言失败：缺少 group_id。", {}
+
+        try:
+            params = {"group_id": int(group_id), "enable": enable}
+            response = await send_handler._send_to_napcat_api("set_group_whole_ban", params)
+            if response and response.get("status") == "ok":
+                return True, "全员禁言指令已发送。", {}
+            else:
+                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                return False, f"全员禁言失败: {err_msg}", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id: {group_id}", {}
+
+class GroupCardHandler(BaseActionHandler):
+    """设置群名片，给他换个新名字玩玩。"""
+    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        user_id = data.get("user_id")
+        card = data.get("card", "") # 传空字符串表示删除名片
+
+        if not group_id or not user_id:
+            return False, "设置群名片失败：缺少 group_id 或 user_id。", {}
+
+        try:
+            params = {
+                "group_id": int(group_id),
+                "user_id": int(user_id),
+                "card": card,
+            }
+            response = await send_handler._send_to_napcat_api("set_group_card", params)
+            if response and response.get("status") == "ok":
+                return True, "群名片设置指令已发送。", {}
+            else:
+                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                return False, f"设置群名片失败: {err_msg}", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id 或 user_id", {}
+
+class GroupSpecialTitleHandler(BaseActionHandler):
+    """设置专属头衔，听起来好中二哦。"""
+    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        user_id = data.get("user_id")
+        special_title = data.get("special_title", "")
+        duration = data.get("duration", -1) # 默认永久
+
+        if not group_id or not user_id:
+            return False, "设置头衔失败：缺少 group_id 或 user_id。", {}
+
+        try:
+            params = {
+                "group_id": int(group_id),
+                "user_id": int(user_id),
+                "special_title": special_title,
+                "duration": int(duration),
+            }
+            response = await send_handler._send_to_napcat_api("set_group_special_title", params)
+            if response and response.get("status") == "ok":
+                return True, "专属头衔设置指令已发送。", {}
+            else:
+                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                return False, f"设置头衔失败: {err_msg}", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id, user_id 或 duration", {}
+
+class GroupLeaveHandler(BaseActionHandler):
+    """退群...拜拜了您内！"""
+    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        is_dismiss = data.get("is_dismiss", False)
+
+        if not group_id:
+            return False, "退群失败：缺少 group_id。", {}
+
+        try:
+            params = {"group_id": int(group_id), "is_dismiss": is_dismiss}
+            response = await send_handler._send_to_napcat_api("set_group_leave", params)
+            if response and response.get("status") == "ok":
+                return True, "退群指令已发送。", {}
+            else:
+                err_msg = response.get("message", "Napcat API 错误") if response else "无响应"
+                return False, f"退群失败: {err_msg}", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id: {group_id}", {}
+
+# --- 之前那些姿势的定义（保持不变） ---
 
 class RecallMessageHandler(BaseActionHandler):
     """处理撤回消息这个姿势"""
@@ -415,6 +629,13 @@ ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
     "action.request.conversation.approve": HandleGroupRequestHandler(),
     "action.request.conversation.reject": HandleGroupRequestHandler(),
     "action.bot.get_profile": GetBotProfileHandler(),
+    "action.message.send_forward": SendForwardMessageHandler(),
+    "action.conversation.kick_member": GroupKickHandler(),
+    "action.conversation.ban_member": GroupBanHandler(),
+    "action.conversation.ban_all_members": GroupWholeBanHandler(),
+    "action.conversation.set_member_card": GroupCardHandler(),
+    "action.conversation.set_member_title": GroupSpecialTitleHandler(),
+    "action.conversation.leave": GroupLeaveHandler(),
 }
 
 

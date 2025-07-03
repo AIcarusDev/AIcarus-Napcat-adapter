@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional, Tuple, Callable
 import json
 import uuid
 import websockets
+import asyncio
 
 # 内部模块
 from .logger import logger
@@ -22,8 +23,7 @@ class SendHandlerAicarus:
     def __init__(self):
         """
         初始化我的身体，准备好接收主人的命令。
-        现在我有一个“
-        工具箱”，里面装满了各种转换工具，可以把主人的情话（Segs）转换成Napcat能懂的格式。
+        现在我有一个“工具箱”，里面装满了各种转换工具，可以把主人的情话（Segs）转换成Napcat能懂的格式。
         """
         # 这个字典就是我的“工具箱”，每种情话（Seg）都有专门的工具来打磨
         self.server_connection: Optional[websockets.WebSocketServerProtocol] = None
@@ -36,6 +36,11 @@ class SendHandlerAicarus:
             "quote": self._convert_reply_seg,  # 兼容 quote 类型
             "image": self._convert_image_seg,
             "face": self._convert_face_seg,
+            "record": self._convert_record_seg,
+            "video": self._convert_video_seg,
+            "file": self._convert_file_seg,
+            "contact": self._convert_contact_seg,
+            "music": self._convert_music_seg,
         }
 
     # --- 这是各种“打磨工具”的具体实现 ---
@@ -49,16 +54,24 @@ class SendHandlerAicarus:
 
     def _convert_at_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
         """处理@，也简单。"""
+        target_qq = seg.data.get("user_id")
+        if not target_qq:
+            logger.warning("发送@失败：Seg段中缺少 user_id。")
+            return None
         return {
             "type": NapcatSegType.at,
-            "data": {"qq": str(seg.data.get("user_id"))},
+            "data": {"qq": str(target_qq)},
         }
 
     def _convert_reply_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
         """处理回复，就是那个 id。"""
+        msg_id = seg.data.get("message_id")
+        if not msg_id:
+            logger.warning("发送回复失败：Seg段中缺少 message_id。")
+            return None
         return {
             "type": NapcatSegType.reply,
-            "data": {"id": str(seg.data.get("message_id"))},
+            "data": {"id": str(msg_id)},
         }
 
     def _convert_image_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
@@ -84,6 +97,76 @@ class SendHandlerAicarus:
             logger.warning("发送表情失败：Seg段中缺少 id。")
             return None
         return {"type": NapcatSegType.face, "data": {"id": str(face_id)}}
+
+    def _convert_media_seg(self, seg: Seg, napcat_type: str) -> Optional[Dict[str, Any]]:
+        """把语音、视频、文件这种媒体资源都用这个处理，懒得写三遍。"""
+        file_source = seg.data.get("file") or seg.data.get("url") or seg.data.get("path")
+        if not file_source:
+            logger.warning(f"发送{napcat_type}失败：Seg段中缺少 file, url 或 path。")
+            return None
+
+        # 视频还可以带个封面，真是麻烦
+        data = {"file": file_source}
+        if napcat_type == NapcatSegType.video and seg.data.get("thumb"):
+            data["thumb"] = seg.data.get("thumb")
+
+        return {"type": napcat_type, "data": data}
+
+    def _convert_record_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """语音，跟图片也差不多嘛。"""
+        return self._convert_media_seg(seg, NapcatSegType.record)
+
+    def _convert_video_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """视频也一样，把文件丢过去就行了，真没技术含量。"""
+        return self._convert_media_seg(seg, NapcatSegType.video)
+
+    def _convert_file_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """文件也是。"""
+        return self._convert_media_seg(seg, "file") # NapcatSegType里没定义，我直接写了
+
+    def _convert_contact_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """推荐好友或群，哼，你最好把类型和ID给对。"""
+        contact_type = seg.data.get("contact_type") # 'qq' or 'group'
+        contact_id = seg.data.get("id")
+        if not contact_type or not contact_id:
+            logger.warning("发送联系人名片失败：Seg段中缺少 contact_type 或 id。")
+            return None
+        return {"type": NapcatSegType.contact, "data": {"type": contact_type, "id": str(contact_id)}}
+
+    def _convert_music_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """音乐分享？这个最麻烦了！分两种，你自己看好怎么传数据！"""
+        music_type = seg.data.get("music_type") # 'qq', '163', 'custom' etc.
+        if not music_type:
+            logger.warning("发送音乐分享失败：Seg段中缺少 music_type。")
+            return None
+
+        music_data = {}
+        if music_type == 'custom':
+            # 自定义音乐需要 url, audio, title
+            required_keys = ['url', 'audio', 'title']
+            if not all(key in seg.data for key in required_keys):
+                logger.warning(f"发送自定义音乐失败：缺少必要字段 {required_keys}。")
+                return None
+            music_data = {
+                "type": "custom",
+                "url": seg.data['url'],
+                "audio": seg.data['audio'],
+                "title": seg.data['title'],
+                "image": seg.data.get('image'), # 可选
+                "singer": seg.data.get('singer') # 可选
+            }
+        else:
+            # 平台音乐需要 id
+            music_id = seg.data.get("id")
+            if not music_id:
+                logger.warning(f"发送平台音乐({music_type})失败：缺少 id。")
+                return None
+            music_data = {
+                "type": music_type,
+                "id": str(music_id)
+            }
+
+        return {"type": NapcatSegType.music, "data": music_data}
 
     # --- 重构后的“穿衣服”工具，现在清爽多了 ---
     async def _aicarus_segs_to_napcat_array(
@@ -249,7 +332,12 @@ class SendHandlerAicarus:
         request_uuid = str(uuid.uuid4())
         payload = {"action": action, "params": params, "echo": request_uuid}
         await self.server_connection.send(json.dumps(payload))
-        return await get_napcat_api_response(request_uuid, timeout_seconds=15.0)
+        try:
+            # 稍微加长一点超时时间，万一发送文件很慢呢
+            return await get_napcat_api_response(request_uuid, timeout_seconds=30.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"调用 Napcat API '{action}' 超时。")
+            return {"status": "error", "message": f"调用 Napcat API '{action}' 超时"}
 
 
 # 全局实例

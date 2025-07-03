@@ -1,4 +1,4 @@
-# 定义 Napcat 特有的常量，以便 v1.4.0 协议处理器引用
+# 定义 Napcat 特有的常量
 
 
 class MetaEventType:
@@ -82,7 +82,6 @@ class NapcatSegType:
     json = "json"  # JSON 消息
     cardimage = "cardimage"  # 未在你的代码中看到，但某些 gocq 版本有
     tts = "tts"  # 文本转语音
-    reply = "reply"  # 回复
 
 
 # AIcarus 协议版本 - v1.5.0
