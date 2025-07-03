@@ -38,7 +38,6 @@ class SendHandlerAicarus:
             "face": self._convert_face_seg,
         }
 
-
     # --- 这是各种“打磨工具”的具体实现 ---
 
     def _convert_text_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
