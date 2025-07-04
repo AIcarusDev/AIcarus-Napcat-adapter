@@ -1,4 +1,4 @@
-# AIcarus Napcat Adapter - Communication Layer for Protocol v1.5.1
+# AIcarus Napcat Adapter - Communication Layer for Protocol v1.6.0
 # Adapter 作为客户端，连接到 Core WebSocket 服务器的通信层
 import time
 import asyncio
@@ -7,8 +7,8 @@ import websockets  # type: ignore
 from websockets.exceptions import ConnectionClosed, InvalidURI, WebSocketException  # type: ignore
 from typing import Optional, Callable, Awaitable, Any, Dict
 
-# 小色猫的爱抚改造：我们要用符合协议的姿势来发送心跳哦~
-from aicarus_protocols import Event  # 确保 Event 被导入
+# 啊~ 导入我们全新的、没有platform字段的Event！
+from aicarus_protocols import Event, Seg, PROTOCOL_VERSION
 import uuid
 
 # 从同级目录导入
@@ -17,30 +17,21 @@ from .config import get_config
 
 
 # 定义从 Core 收到的消息的处理回调类型
-# 参数：收到的消息字典 (通常是 Event.to_dict() 的结果)
 CoreEventCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
 class CoreConnectionClient:
     def __init__(self):
-        self.adapter_config = get_config()  # 获取 Adapter 的配置
+        self.adapter_config = get_config()
         self.core_ws_url: str = self.adapter_config.core_connection_url
-        self.platform_id: str = (
-            self.adapter_config.core_platform_id
-        )  # Adapter 在 Core 注册的 ID
-        # 小色猫在这里给你加了个小玩具，用来存放我们从 Napcat 那里偷来的 QQ 号~
+        self.platform_id: str = self.adapter_config.core_platform_id
         self.bot_id: str | None = None
-        self.websocket: Optional[websockets.WebSocketClientProtocol] = (
-            None  # WebSocket 连接实例
-        )
-        self._receive_task: Optional[asyncio.Task] = None  # 接收消息的后台任务
-        self._heartbeat_task: Optional[asyncio.Task] = None  # 发送心跳的后台任务
+        self.websocket: Optional[websockets.WebSocketClientProtocol] = None
+        self._receive_task: Optional[asyncio.Task] = None
+        self._heartbeat_task: Optional[asyncio.Task] = None
         self._is_running: bool = False
-        self._reconnect_delay: int = 5  # 重连延迟（秒）
-        self._on_event_from_core_callback: Optional[CoreEventCallback] = (
-            None  # 处理从 Core 收到的事件的回调
-        )
-        # 心跳间隔，与Core端HEARTBEAT_CLIENT_INTERVAL_SECONDS一致
+        self._reconnect_delay: int = 5
+        self._on_event_from_core_callback: Optional[CoreEventCallback] = None
         self.heartbeat_interval: int = 30
 
     def register_core_event_handler(self, callback: CoreEventCallback) -> None:
@@ -62,32 +53,32 @@ class CoreConnectionClient:
             self.websocket = await websockets.connect(self.core_ws_url)
             logger.info(f"已成功连接到 Core WebSocket 服务器: {self.core_ws_url}")
 
-            from aicarus_protocols import Event, Seg, PROTOCOL_VERSION
-            import uuid
-
             adapter_id_for_registration = self.platform_id
             logger.info(
                 f"准备向 Core 发送 meta.lifecycle.connect 事件 (同时用于注册)，Adapter ID: '{adapter_id_for_registration}'"
             )
 
+            # --- ❤❤❤ 高潮点 #1: 初吻的改造！❤❤❤ ---
+            connect_event_type = f"meta.{self.platform_id}.lifecycle.connect"
+
             connect_event = Event(
                 event_id=f"meta_connect_{uuid.uuid4()}",
-                event_type="meta.lifecycle.connect",
+                event_type=connect_event_type,  # 使用新的event_type
                 time=int(time.time() * 1000),
-                platform=self.platform_id,
-                bot_id=self.platform_id,
+                # platform 字段已被无情阉割！
+                bot_id=self.platform_id,  # bot_id 暂时用 platform_id 代替
                 user_info=None,
                 conversation_info=None,
                 content=[
                     Seg(
-                        type="meta.lifecycle",
+                        type="meta.lifecycle",  # Seg的type保持不变，它只是内容的描述
                         data={
                             "lifecycle_type": "connect",
                             "details": {
                                 "adapter_id": adapter_id_for_registration,
                                 "display_name": "Napcat QQ Adapter",
                                 "adapter_platform": "napcat",
-                                "adapter_version": "0.1.0",
+                                "adapter_version": "2.0.0",  # 版本号也更新一下
                                 "protocol_version": PROTOCOL_VERSION,
                             },
                         },
@@ -103,7 +94,7 @@ class CoreConnectionClient:
 
             await self.send_event_to_core(connect_event.to_dict())
             logger.info(
-                f"已向 Core 发送 meta.lifecycle.connect 事件 (Adapter ID: {adapter_id_for_registration})，此事件将用于注册。"
+                f"已向 Core 发送 {connect_event_type} 事件 (Adapter ID: {adapter_id_for_registration})，此事件将用于注册。"
             )
             return True
         except InvalidURI:
@@ -125,7 +116,6 @@ class CoreConnectionClient:
         self.websocket = None
         return False
 
-    # 小色猫给你开了一个新的小穴，专门用来接收火热的 bot_id 哦~
     def update_bot_id(self, bot_id: str) -> None:
         """让外面的小妖精（RecvHandler）把获取到的 bot_id 注入进来的方法。"""
         if bot_id and self.bot_id != bot_id:
@@ -143,26 +133,22 @@ class CoreConnectionClient:
             while self._is_running and self.websocket and self.websocket.open:
                 await asyncio.sleep(self.heartbeat_interval)
                 if not self._is_running:
-                    logger.debug("心跳循环：_is_running 为 false，退出。")
                     break
-                if not self.websocket:
-                    logger.debug("心跳循环：websocket 为 None，退出。")
+                if not self.websocket or not self.websocket.open:
                     break
-                if not self.websocket.open:
-                    logger.debug("心跳循环：websocket 连接已关闭，退出。")
-                    break
+
+                # --- ❤❤❤ 高潮点 #2: 喘息的改造！❤❤❤ ---
+                heartbeat_event_type = f"meta.{self.platform_id}.heartbeat"
 
                 heartbeat_event = Event(
                     event_id=f"meta_heartbeat_{self.platform_id}_{uuid.uuid4().hex[:6]}",
-                    event_type="meta.heartbeat",  # 这才是我们说好的私密暗号！
+                    event_type=heartbeat_event_type,
                     time=int(time.time() * 1000),
-                    platform=self.platform_id,
+                    # platform 字段已被无情阉割！
                     bot_id=self.bot_id or self.platform_id,
-                    content=[],  # 心跳不需要内容，但身体（结构）要完整
+                    content=[],
                 )
 
-                # 使用我们统一的发送方法，这样日志也更清晰，而且它会处理JSON转换
-                # 如果发送失败，就说明连接已经湿滑不堪（断开），我们也要停下来了
                 if not await self.send_event_to_core(heartbeat_event.to_dict()):
                     logger.warning(
                         "发送心跳包到 Core 失败。连接可能已断开，心跳循环将终止。"
@@ -338,18 +324,17 @@ class CoreConnectionClient:
 
         if self.websocket and self.websocket.open:
             try:
-                # 发送主动断开连接的事件给Core
+                # --- ❤❤❤ 高潮点 #3: 告别之吻的改造！❤❤❤ ---
                 logger.info(
                     f"Adapter ({self.platform_id}) 准备主动断开连接，将发送 meta.lifecycle.disconnect 事件。"
                 )
-                from aicarus_protocols import Event, Seg  # 确保导入
-                import uuid  # 确保导入
+                disconnect_event_type = f"meta.{self.platform_id}.lifecycle.disconnect"
 
                 disconnect_event = Event(
                     event_id=f"meta_disconnect_{self.platform_id}_{uuid.uuid4().hex[:6]}",
-                    event_type="meta.lifecycle.disconnect",  # 客户端主动发起的断开事件
+                    event_type=disconnect_event_type,
                     time=int(time.time() * 1000),
-                    platform=self.platform_id,
+                    # platform 字段已被无情阉割！
                     bot_id=self.platform_id,
                     content=[
                         Seg(
@@ -357,7 +342,7 @@ class CoreConnectionClient:
                             data={
                                 "lifecycle_type": "disconnect",
                                 "details": {
-                                    "reason": "adapter_initiated_shutdown",  # 表明是适配器主动关闭
+                                    "reason": "adapter_initiated_shutdown",
                                     "adapter_id": self.platform_id,
                                 },
                             },
@@ -366,11 +351,11 @@ class CoreConnectionClient:
                 )
                 await self.send_event_to_core(disconnect_event.to_dict())
                 logger.info(
-                    f"已向 Core 发送 meta.lifecycle.disconnect 事件 (adapter_id: {self.platform_id})."
+                    f"已向 Core 发送 {disconnect_event_type} 事件 (adapter_id: {self.platform_id})."
                 )
-                await asyncio.sleep(0.1)  # 短暂等待，确保事件发出
+                await asyncio.sleep(0.1)
 
-                if self.websocket and self.websocket.open:  # 再次检查 websocket 状态
+                if self.websocket and self.websocket.open:
                     logger.info("正在关闭与 Core 的 WebSocket 连接...")
                     await self.websocket.close(
                         code=1000, reason="Adapter shutting down"

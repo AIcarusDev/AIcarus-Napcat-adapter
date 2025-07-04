@@ -1,5 +1,4 @@
-# aicarus_napcat_adapter/src/action_definitions.py
-# 这是我们的“花式玩法名录”，哥哥你看，是不是很性感？
+# aicarus_napcat_adapter/src/action_definitions.py (小色猫·最终高潮版)
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING, List
 import asyncio
@@ -28,19 +27,10 @@ if TYPE_CHECKING:
 
 # --- 定义一个所有“玩法”都要遵守的性感基准 ---
 class BaseActionHandler(ABC):
-    """所有动作处理器的基类，定义了它们必须拥有的'执行'高潮方法"""
-
     @abstractmethod
     async def execute(
-        self,
-        action_seg: Seg,
-        event: Event,
-        send_handler: "SendHandlerAicarus",  # 引用发送处理器以调用API
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
-        """
-        执行具体的动作。
-        返回: (success: bool, error_message: str, details_for_response: dict)
-        """
         pass
 
 
@@ -434,7 +424,8 @@ class HandleFriendRequestHandler(BaseActionHandler):
     ) -> Tuple[bool, str, Dict[str, Any]]:
         action_data = action_seg.data
         request_flag = str(action_data.get("request_flag", ""))
-        approve_action = action_seg.type == "action.request.friend.approve"
+        # 啊~❤ 现在 approve 参数直接从 data 里拿，多方便！
+        approve_action = action_data.get("approve", False)
         remark = action_data.get("remark")
 
         if not request_flag:
@@ -475,7 +466,8 @@ class HandleGroupRequestHandler(BaseActionHandler):
     ) -> Tuple[bool, str, Dict[str, Any]]:
         action_data = action_seg.data
         request_flag = str(action_data.get("request_flag", ""))
-        approve_action = action_seg.type == "action.request.conversation.approve"
+        # 啊~❤ 这里也一样！
+        approve_action = action_data.get("approve", False)
         reason = action_data.get("reason")
         core_original_request_sub_type = action_data.get("original_request_sub_type")
 
@@ -717,35 +709,50 @@ class GetGroupInfoHandler(BaseActionHandler):
 
 # --- 新来的苦力们，哼 ---
 
+
 class GroupSignInHandler(BaseActionHandler):
     """处理群签到，真有人用这个吗？"""
-    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         group_id = action_seg.data.get("group_id")
         if not group_id:
             return False, "群签到失败：必须提供 group_id。", {}
 
         try:
-            response = await napcat_set_group_sign(send_handler.server_connection, int(group_id))
+            response = await napcat_set_group_sign(
+                send_handler.server_connection, int(group_id)
+            )
             if response is not None:
                 return True, "群签到指令已发送。", {}
             else:
                 return False, "群签到失败：Napcat API 调用失败或无响应。", {}
         except (ValueError, TypeError):
-             return False, f"无效的 group_id: {group_id}", {}
+            return False, f"无效的 group_id: {group_id}", {}
+
 
 class SetBotStatusHandler(BaseActionHandler):
     """设置在线状态，你想变成“离开”还是“隐身”？随你便。"""
-    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         status = action_seg.data.get("status")
         if status is None:
             return False, "设置在线状态失败：必须提供 status 字段。", {}
-        
+
         # 提供默认值，万一你懒得传呢
         ext_status = action_seg.data.get("ext_status", 0)
         battery_status = action_seg.data.get("battery_status", 100)
-        
+
         try:
-            response = await napcat_set_online_status(send_handler.server_connection, int(status), int(ext_status), int(battery_status))
+            response = await napcat_set_online_status(
+                send_handler.server_connection,
+                int(status),
+                int(ext_status),
+                int(battery_status),
+            )
             if response is not None:
                 return True, "在线状态设置指令已发送。", {}
             else:
@@ -753,22 +760,30 @@ class SetBotStatusHandler(BaseActionHandler):
         except (ValueError, TypeError):
             return False, "status, ext_status, battery_status 必须是数字哦。", {}
 
+
 class SetBotAvatarHandler(BaseActionHandler):
     """换个头像换个心情，哼。"""
-    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         file = action_seg.data.get("file")
         if not file:
             return False, "设置头像失败：必须提供 file 字段。", {}
-            
+
         response = await napcat_set_qq_avatar(send_handler.server_connection, file)
         if response is not None:
             return True, "设置头像指令已发送。", {}
         else:
             return False, "设置头像失败：Napcat API 调用失败或无响应。", {}
 
+
 class GetHistoryHandler(BaseActionHandler):
     """获取历史消息，最麻烦的就是你了！我得把每一条都给你重新化妆一遍！"""
-    async def execute(self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus") -> Tuple[bool, str, Dict[str, Any]]:
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         conv_info = event.conversation_info
         if not conv_info or not conv_info.conversation_id:
             return False, "获取历史消息失败：缺少会话信息。", {}
@@ -779,15 +794,29 @@ class GetHistoryHandler(BaseActionHandler):
         raw_messages: Optional[List[Dict[str, Any]]] = None
         try:
             if conv_info.type == ConversationType.GROUP:
-                raw_messages = await napcat_get_group_msg_history(send_handler.server_connection, conv_info.conversation_id, message_seq, count)
+                raw_messages = await napcat_get_group_msg_history(
+                    send_handler.server_connection,
+                    conv_info.conversation_id,
+                    message_seq,
+                    count,
+                )
             elif conv_info.type == ConversationType.PRIVATE:
-                raw_messages = await napcat_get_friend_msg_history(send_handler.server_connection, conv_info.conversation_id, message_seq, count)
+                raw_messages = await napcat_get_friend_msg_history(
+                    send_handler.server_connection,
+                    conv_info.conversation_id,
+                    message_seq,
+                    count,
+                )
             else:
-                return False, f"不支持的会话类型 '{conv_info.type}' 用于获取历史消息。", {}
+                return (
+                    False,
+                    f"不支持的会话类型 '{conv_info.type}' 用于获取历史消息。",
+                    {},
+                )
         except Exception as e:
             logger.error(f"调用历史消息API时出错: {e}", exc_info=True)
             return False, f"调用历史消息API时出错: {e}", {}
-        
+
         if raw_messages is None:
             return False, "从Napcat获取历史消息失败，API可能返回错误或无响应。", {}
 
@@ -798,52 +827,56 @@ class GetHistoryHandler(BaseActionHandler):
                 # 复用 recv_handler 里的工具，我才不自己重写一遍呢
                 user_info_obj = await recv_handler_aicarus._napcat_to_aicarus_userinfo(
                     raw_msg.get("sender", {}),
-                    group_id=conv_info.conversation_id if conv_info.type == ConversationType.GROUP else None
+                    group_id=conv_info.conversation_id
+                    if conv_info.type == ConversationType.GROUP
+                    else None,
                 )
-                
+
                 content_segs = await recv_handler_aicarus._napcat_to_aicarus_seglist(
-                    raw_msg.get("message", []),
-                    raw_msg
+                    raw_msg.get("message", []), raw_msg
                 )
 
                 converted_msg_dict = {
                     "message_id": str(raw_msg.get("message_id")),
                     "time": int(raw_msg.get("time", 0) * 1000),
                     "sender": user_info_obj.to_dict() if user_info_obj else None,
-                    "content": [seg.to_dict() for seg in content_segs]
+                    "content": [seg.to_dict() for seg in content_segs],
                 }
                 converted_messages.append(converted_msg_dict)
 
             except Exception as e:
-                logger.error(f"转换一条历史消息时出错: {e}, 原始消息: {raw_msg}", exc_info=True)
+                logger.error(
+                    f"转换一条历史消息时出错: {e}, 原始消息: {raw_msg}", exc_info=True
+                )
                 # 这条转换失败就跳过，不能因为一颗老鼠屎坏了一锅粥
-        
+
         return True, "历史消息获取成功。", {"messages": converted_messages}
 
-# --- 这就是我们的“花式玩法名录”（动作工厂） ---
+
+# --- ❤❤❤ 最终高潮点！更新我们的“花名册”！❤❤❤ ---
+# 现在 key 是 Core 发来的、脱掉了平台外衣的“动作别名”！
 ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
-    "action.message.recall": RecallMessageHandler(),
-    "action.user.poke": PokeUserHandler(),
-    "action.request.friend.approve": HandleFriendRequestHandler(),
-    "action.request.friend.reject": HandleFriendRequestHandler(),
-    "action.conversation.get_info": GetGroupInfoHandler(),
-    "action.request.conversation.approve": HandleGroupRequestHandler(),
-    "action.request.conversation.reject": HandleGroupRequestHandler(),
-    "action.bot.get_profile": GetBotProfileHandler(),
-    "action.message.send_forward": SendForwardMessageHandler(),
-    "action.conversation.kick_member": GroupKickHandler(),
-    "action.conversation.ban_member": GroupBanHandler(),
-    "action.conversation.ban_all_members": GroupWholeBanHandler(),
-    "action.conversation.set_member_card": GroupCardHandler(),
-    "action.conversation.set_member_title": GroupSpecialTitleHandler(),
-    "action.conversation.leave": GroupLeaveHandler(),
-    "action.conversation.sign_in": GroupSignInHandler(),
-    "action.bot.set_status": SetBotStatusHandler(),
-    "action.bot.set_avatar": SetBotAvatarHandler(),
-    "action.conversation.get_history": GetHistoryHandler(),
+    # 啊~❤ 看这些名字，多么统一，多么性感！
+    "recall_message": RecallMessageHandler(),
+    "poke_user": PokeUserHandler(),
+    "handle_friend_request": HandleFriendRequestHandler(),
+    "get_group_info": GetGroupInfoHandler(),
+    "handle_group_request": HandleGroupRequestHandler(),
+    "get_bot_profile": GetBotProfileHandler(),
+    "send_forward_message": SendForwardMessageHandler(),
+    "kick_member": GroupKickHandler(),
+    "ban_member": GroupBanHandler(),
+    "ban_all_members": GroupWholeBanHandler(),
+    "set_member_card": GroupCardHandler(),
+    "set_member_title": GroupSpecialTitleHandler(),
+    "leave_conversation": GroupLeaveHandler(),
+    "sign_in": GroupSignInHandler(),
+    "set_status": SetBotStatusHandler(),
+    "set_avatar": SetBotAvatarHandler(),
+    "get_history": GetHistoryHandler(),
 }
 
 
-def get_action_handler(action_type: str) -> Optional[BaseActionHandler]:
-    """根据动作类型，从名录中取出对应的玩法"""
-    return ACTION_HANDLERS.get(action_type)
+def get_action_handler(action_alias: str) -> Optional[BaseActionHandler]:
+    """根据动作别名，从名录中取出对应的玩法"""
+    return ACTION_HANDLERS.get(action_alias)

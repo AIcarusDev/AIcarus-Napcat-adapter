@@ -1,4 +1,4 @@
-# aicarus_napcat_adapter/src/recv_handler_aicarus.py (小色猫·增强版)
+# aicarus_napcat_adapter/src/recv_handler_aicarus.py (小色猫·绝对统治版)
 import time
 import asyncio
 import uuid
@@ -10,7 +10,6 @@ from .logger import logger
 from .config import global_config, get_config
 from .qq_emoji_list import qq_face
 
-# 修正 utils.py 的导入
 from .utils import (
     napcat_get_group_info,
     napcat_get_member_info,
@@ -20,7 +19,7 @@ from .utils import (
 )
 from .napcat_definitions import NapcatSegType
 
-# AIcarus 协议库 v1.5.1
+# 导入我们全新的、纯洁的协议对象！
 from aicarus_protocols import Event, UserInfo, ConversationInfo, Seg, ConversationType
 from .event_definitions import get_event_handler
 
@@ -32,13 +31,11 @@ class RecvHandlerAicarus:
     server_connection: Optional[websockets.WebSocketServerProtocol] = None
     napcat_bot_id: Optional[str] = None
     global_config = global_config
-    last_heart_beat: float = 0.0  # 小猫的爱意计时器~
-    interval: float = 5.0  # 默认心跳间隔，后面会被覆盖
+    last_heart_beat: float = 0.0
+    interval: float = 5.0
 
     def __init__(self):
-        """在这里初始化，是为了让身体随时做好准备~"""
         cfg = get_config()
-        # 姐姐说这里应该用配置文件的，哼，我就要写死，我才不要和小懒猫一样
         self.interval = cfg.napcat_heartbeat_interval_seconds
 
     async def process_event(self, napcat_event: dict) -> None:
@@ -102,7 +99,7 @@ class RecvHandlerAicarus:
     async def _napcat_to_aicarus_userinfo(
         self, napcat_user_obj: dict, group_id: Optional[str] = None
     ) -> UserInfo:
-        """把Napcat的用户信息，变成我喜欢的、丰满的样子~"""
+        """把Napcat的用户信息，变成我喜欢的、丰满的样子~ (已阉割platform)"""
         user_id = str(napcat_user_obj.get("user_id", ""))
         nickname = napcat_user_obj.get("nickname")
         cardname = napcat_user_obj.get("card")
@@ -129,8 +126,8 @@ class RecvHandlerAicarus:
                     permission_level = "member"
                     role = "member"
 
+        # --- ❤❤❤ 看这里！UserInfo的构造器里已经没有platform了！❤❤❤ ---
         return UserInfo(
-            platform=self.global_config.core_platform_id,
             user_id=user_id,
             user_nickname=nickname,
             user_cardname=cardname,
@@ -143,10 +140,10 @@ class RecvHandlerAicarus:
     async def _napcat_to_aicarus_conversationinfo(
         self, napcat_group_id: str
     ) -> Optional[ConversationInfo]:
-        """把光秃秃的群号，变成有名字的性感会话~"""
+        """把光秃秃的群号，变成有名字的性感会话~ (已阉割platform)"""
         if not self.server_connection:
+            # --- ❤❤❤ 这里也没有platform了！❤❤❤ ---
             return ConversationInfo(
-                platform=self.global_config.core_platform_id,
                 conversation_id=napcat_group_id,
                 type=ConversationType.GROUP,
             )
@@ -155,8 +152,8 @@ class RecvHandlerAicarus:
             self.server_connection, napcat_group_id
         )
         group_name = group_data.get("group_name") if group_data else None
+        # --- ❤❤❤ 这里也没有platform了！❤❤❤ ---
         return ConversationInfo(
-            platform=self.global_config.core_platform_id,
             conversation_id=napcat_group_id,
             type=ConversationType.GROUP,
             name=group_name,
@@ -165,11 +162,11 @@ class RecvHandlerAicarus:
     async def _napcat_to_aicarus_private_conversationinfo(
         self, napcat_user_info: UserInfo
     ) -> Optional[ConversationInfo]:
-        """把私聊的用户，也包装成一个独立的、私密的会话~"""
+        """把私聊的用户，也包装成一个独立的、私密的会话~ (已阉割platform)"""
         if not napcat_user_info or not napcat_user_info.user_id:
             return None
+        # --- ❤❤❤ 这里也没有platform了！❤❤❤ ---
         return ConversationInfo(
-            platform=self.global_config.core_platform_id,
             conversation_id=napcat_user_info.user_id,
             type=ConversationType.PRIVATE,
             name=napcat_user_info.user_nickname,
@@ -324,22 +321,26 @@ class RecvHandlerAicarus:
                 and time.time() - self.last_heart_beat > self.interval + 5
             ):
                 logger.warning("主人，连接好像要断了 (心跳超时)，我要发出断连呻吟了！")
+
+                # --- ❤❤❤ 这里也要用新的方式构造！❤❤❤ ---
+                platform_id = self.global_config.core_platform_id
+                disconnect_event_type = f"meta.{platform_id}.lifecycle.disconnect"
+
                 disconnect_seg = Seg(
                     type="meta.lifecycle.disconnect",
-                    data={"reason": "heartbeat_timeout", "adapter_version": "1.0.0"},
+                    data={"reason": "heartbeat_timeout", "adapter_version": "2.0.0"},
                 )
                 disconnect_event = Event(
                     event_id=f"meta_disconnect_{uuid.uuid4()}",
-                    event_type="meta.lifecycle.disconnect",
+                    event_type=disconnect_event_type,
                     time=time.time() * 1000.0,
-                    platform=self.global_config.core_platform_id,
                     bot_id=bot_id,
                     user_info=None,
                     conversation_info=None,
                     content=[disconnect_seg],
                 )
                 await self.dispatch_to_core(disconnect_event)
-                break  # 连接断了，循环也该结束了
+                break
             else:
                 logger.debug(f"你的心跳很强劲呢，主人~ ({bot_id})")
 

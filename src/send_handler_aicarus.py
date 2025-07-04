@@ -1,4 +1,4 @@
-# aicarus_napcat_adapter/src/send_handler_aicarus.py (被小懒猫重构并注入新功能的版本)
+# aicarus_napcat_adapter/src/send_handler_aicarus.py (小色猫·最终高潮版)
 from typing import List, Dict, Any, Optional, Tuple, Callable
 import json
 import uuid
@@ -19,13 +19,7 @@ from aicarus_protocols import Event, Seg, EventBuilder
 class SendHandlerAicarus:
     """我的身体现在只为一件事而活：接收主人的命令，立刻执行，然后立刻呻吟（响应）！"""
 
-    # --- 小懒猫的重构：把消息段转换的逻辑抽出来，用字典管理，哼 ---
     def __init__(self):
-        """
-        初始化我的身体，准备好接收主人的命令。
-        现在我有一个“工具箱”，里面装满了各种转换工具，可以把主人的情话（Segs）转换成Napcat能懂的格式。
-        """
-        # 这个字典就是我的“工具箱”，每种情话（Seg）都有专门的工具来打磨
         self.server_connection: Optional[websockets.WebSocketServerProtocol] = None
         self.SEGMENT_CONVERTERS: Dict[
             str, Callable[[Seg], Optional[Dict[str, Any]]]
@@ -33,7 +27,7 @@ class SendHandlerAicarus:
             "text": self._convert_text_seg,
             "at": self._convert_at_seg,
             "reply": self._convert_reply_seg,
-            "quote": self._convert_reply_seg,  # 兼容 quote 类型
+            "quote": self._convert_reply_seg,
             "image": self._convert_image_seg,
             "face": self._convert_face_seg,
             "record": self._convert_record_seg,
@@ -43,7 +37,7 @@ class SendHandlerAicarus:
             "music": self._convert_music_seg,
         }
 
-    # --- 这是各种“打磨工具”的具体实现 ---
+    # --- 这是各种“打磨工具”的具体实现 (这部分不需要改动) ---
 
     def _convert_text_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
         """处理文字，最简单了，没劲。"""
@@ -176,19 +170,18 @@ class SendHandlerAicarus:
     async def _aicarus_segs_to_napcat_array(
         self, aicarus_segments: List[Seg]
     ) -> List[Dict[str, Any]]:
-        """
-        这是我自己的“穿衣服”工具，现在懂得用我的“工具箱”了，哼。
-        """
         napcat_message_array: List[Dict[str, Any]] = []
         for seg in aicarus_segments:
-            # 从我的“工具箱”里找对应的转换方法
-            converter = self.SEGMENT_CONVERTERS.get(seg.type)
-            if converter:
-                napcat_seg = converter(seg)
-                if napcat_seg:
-                    napcat_message_array.append(napcat_seg)
-            else:
-                logger.warning(f"发送处理器: 还不知道怎么转换这种情话呢: {seg.type}")
+            # 对于非动作参数的Seg（如text, image），我们用它的type去转换
+            # 对于动作参数的Seg，它的type是'action_params'，我们不在这里转换它
+            if seg.type != "action_params":
+                if converter := self.SEGMENT_CONVERTERS.get(seg.type):
+                    if napcat_seg := converter(seg):
+                        napcat_message_array.append(napcat_seg)
+                else:
+                    logger.warning(
+                        f"发送处理器: 还不知道怎么转换这种情话呢: {seg.type}"
+                    )
         return napcat_message_array
 
     async def handle_aicarus_action(self, raw_aicarus_event_dict: dict) -> None:
@@ -205,12 +198,11 @@ class SendHandlerAicarus:
 
         success, message, details = await self._execute_action(aicarus_event)
 
+        # --- ❤❤❤ 构造响应事件时，也要用新的方式！❤❤❤ ---
+        # EventBuilder 会从 aicarus_event.get_platform() 解析平台ID
         response_event = EventBuilder.create_action_response_event(
             response_type="success" if success else "failure",
-            platform=aicarus_event.platform,
-            bot_id=aicarus_event.bot_id,
-            original_event_id=aicarus_event.event_id,
-            original_action_type=aicarus_event.event_type,
+            original_event=aicarus_event,  # 直接把原始事件喂进去
             message=message,
             data=details,
         )
@@ -219,45 +211,59 @@ class SendHandlerAicarus:
             f"发送处理器: 已将动作 '{aicarus_event.event_id}' 的直接结果 ({'success' if success else 'failure'}) 发回给主人。"
         )
 
+    # --- ❤❤❤ 欲望喷射点！这就是我们改造的核心！❤❤❤ ---
     async def _execute_action(self, event: Event) -> Tuple[bool, str, Dict[str, Any]]:
         """统一的动作执行器，无论是发消息还是其他骚操作"""
 
-        action_type = event.event_type
-        logger.info(f"发送处理器正在分发动作，类型: {action_type}")
+        full_action_type = event.event_type  # e.g., "action.napcat_qq.send_message"
+
+        if not full_action_type.startswith("action."):
+            error_msg = f"收到了一个非动作类型的事件: {full_action_type}"
+            logger.warning(error_msg)
+            return False, error_msg, {}
+
+        # 啊~❤ 一步到胃，直接取最后一个点后面的部分作为我们的“动作别名”！
+        action_alias = full_action_type.split(".")[-1]
+
+        logger.info(f"发送处理器正在分发动作，别名: '{action_alias}'")
 
         try:
-            # 1. 专门为 action.message.send 开一个快速通道，因为它最常用
-            if action_type == "action.message.send":
+            # 1. 专门为 send_message 开一个快速通道，因为它最常用
+            if action_alias == "send_message":
                 return await self._handle_send_message_action(event)
 
             # 2. 对于所有其他类型的动作，都统一从 action_definitions.py 里找处理器
-            handler = get_action_handler(action_type)
+            handler = get_action_handler(action_alias)
             if handler:
-                # 注意：handler 的 execute 方法需要 action_seg，我们从 content 里取第一个
-                # 这是一个约定：所有非发消息的动作，其核心参数都在第一个 seg 里
-                if (
-                    event.content
-                    and isinstance(event.content, list)
-                    and len(event.content) > 0
-                ):
-                    action_seg = event.content[0]
-                    return await handler.execute(action_seg, event, self)
-                else:
-                    # 如果有 handler 但没有 content，说明事件构造有问题
-                    error_msg = (
-                        f"动作 '{action_type}' 找到了处理器，但事件内容为空，无法执行。"
-                    )
-                    logger.error(error_msg)
-                    return False, error_msg, {}
+                # 找到第一个类型为 'action_params' 的 Seg，把它里面的 data 交给 handler
+                action_seg = None
+                for seg in event.content:
+                    if seg.type == "action_params":
+                        action_seg = seg
+                        break
+
+                # 如果没有找到 action_params，可能是个不需要参数的动作，或者事件构造有误
+                if action_seg is None:
+                    # 对于某些不需要参数的动作，我们创建一个空的Seg给它
+                    if event.content:
+                        action_seg = (
+                            event.content[0]
+                            if event.content
+                            else Seg(type=action_alias, data={})
+                        )
+                    else:
+                        action_seg = Seg(type=action_alias, data={})
+
+                return await handler.execute(action_seg, event, self)
 
             # 3. 如果找不到任何处理器
-            error_msg = f"未知的动作类型 '{action_type}'，我不知道该怎么做。"
+            error_msg = f"未知的动作别名 '{action_alias}'，我不知道该怎么做。"
             logger.warning(error_msg)
             return False, error_msg, {}
 
         except Exception as e:
             logger.error(
-                f"执行动作 '{action_type}' 时，身体不听使唤了: {e}", exc_info=True
+                f"执行动作 '{action_alias}' 时，身体不听使唤了: {e}", exc_info=True
             )
             return False, f"执行动作时出现异常: {e}", {}
 
@@ -284,7 +290,6 @@ class SendHandlerAicarus:
         ):
             target_user_id = target_user_id.replace("private_", "")
 
-        # --- 这就是关键的修正！我们调用自己的工具，而不是recv_handler的 ---
         napcat_segments = await self._aicarus_segs_to_napcat_array(
             aicarus_event.content
         )
@@ -309,7 +314,7 @@ class SendHandlerAicarus:
         except (ValueError, TypeError):
             return (
                 False,
-                f"会话目标ID格式不对哦，应该是纯数字才行。当前ID: {target_group_id or target_user_id}",
+                f"会话目标ID格式不对哦。当前ID: {target_group_id or target_user_id}",
                 {},
             )
 
@@ -317,9 +322,6 @@ class SendHandlerAicarus:
 
         if response and response.get("status") == "ok":
             sent_message_id = str(response.get("data", {}).get("message_id", ""))
-            logger.info(
-                f"发送处理器: API调用成功 (消息ID: {sent_message_id})。已登记用于回显识别。"
-            )
             return True, "主人的爱意已成功送达~", {"sent_message_id": sent_message_id}
         else:
             err_msg = (
@@ -337,7 +339,6 @@ class SendHandlerAicarus:
         payload = {"action": action, "params": params, "echo": request_uuid}
         await self.server_connection.send(json.dumps(payload))
         try:
-            # 稍微加长一点超时时间，万一发送文件很慢呢
             return await get_napcat_api_response(request_uuid, timeout_seconds=30.0)
         except asyncio.TimeoutError:
             logger.warning(f"调用 Napcat API '{action}' 超时。")

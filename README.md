@@ -1,10 +1,10 @@
-# AIcarus-Napcat-Adapter v2.0.0 (稳定重构版)
+# AIcarus-Napcat-Adapter v2.0.0
 
-**AIcarus-Napcat-adapter** 是一个高效、稳定的适配器，旨在将 Napcat QQ 客户端的事件和 API 调用，无缝转换为 **AIcarus 消息协议 v1.5.1** 进行通信。它作为 Napcat 和 AIcarus Core 之间的核心桥梁，确保了消息和指令能够准确、可靠地双向流动。
+**AIcarus-Napcat-adapter** 是一个高效、稳定的适配器，旨在将 Napcat QQ 客户端的事件和 API 调用，无缝转换为 **AIcarus 消息协议 v1.6.0** 进行通信。它作为 Napcat 和 AIcarus Core 之间的核心桥梁，确保了消息和指令能够准确、可靠地双向流动。
 
 ## ✨ 功能亮点 (v2.0.0)
 
-*   **协议适配 v1.5.1**: 全面兼容 AIcarus Message Protocol `v1.5.1` 版本，支持更丰富、更标准化的事件和动作定义。
+*   **协议适配 v1.6.0**: 全面兼容 AIcarus Message Protocol `v1.6.0` 版本，支持基于命名空间的动态事件类型系统，实现了真正的平台解耦。
 *   **双向通信**:
     *   **事件上报**: 将 Napcat 的各类事件（如消息、通知、请求）标准化为 AIcarus 协议事件，并发送到 AIcarus Core。
     *   **动作执行**: 接收来自 Core 的 AIcarus 动作指令，并将其精确转换为 Napcat API 调用以执行相应操作（如发送消息、踢人、戳一戳等）。
@@ -35,8 +35,8 @@
     *   请打开此文件，并根据您的环境修改以下关键配置项：
         *   `[adapter_server]`: 设置适配器监听 Napcat 客户端连接的 `host` 和 `port` (默认: `127.0.0.1:8095`)。
         *   `[core_connection]`:
-            *   `url`: AIcarus Core 的 WebSocket 服务器地址 (默认: `ws://127.0.0.1:8077/ws`)。
-            *   `platform_id`: 此适配器在 AIcarus Core 中注册的唯一平台ID，必须与 Core 端配置保持一致 (例如: `napcat_qq`)。
+            *   `url`: AIcarus Core 的 WebSocket 服务器地址 (默认: `ws://127.0.0.1:8077`)。
+            *   `platform_id`: **(极其重要!)** 此适配器在 AIcarus Core 中注册的唯一平台ID。**必须**与 Core 端 `platform_builders` 中定义的平台ID完全一致 (例如: `napcat_qq`)。
         *   `[bot_settings]`:
             *   `force_self_id`: （推荐）可在此处强制指定机器人的 QQ 号，以避免因 API 调用失败而无法获取。
     *   **重要提示**: 每次配置文件被创建或更新后，程序都会提示您检查并自动退出。请您检查并确认配置无误后，再重新启动适配器。
