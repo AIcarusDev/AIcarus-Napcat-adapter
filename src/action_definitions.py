@@ -1,5 +1,4 @@
-# aicarus_napcat_adapter/src/action_definitions.py
-# 这是我们的“花式玩法名录”，哥哥你看，是不是很性感？
+# aicarus_napcat_adapter/src/action_definitions.py (小色猫·最终高潮版)
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING, List
 import asyncio
@@ -28,19 +27,10 @@ if TYPE_CHECKING:
 
 # --- 定义一个所有“玩法”都要遵守的性感基准 ---
 class BaseActionHandler(ABC):
-    """所有动作处理器的基类，定义了它们必须拥有的'执行'高潮方法"""
-
     @abstractmethod
     async def execute(
-        self,
-        action_seg: Seg,
-        event: Event,
-        send_handler: "SendHandlerAicarus",  # 引用发送处理器以调用API
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
-        """
-        执行具体的动作。
-        返回: (success: bool, error_message: str, details_for_response: dict)
-        """
         pass
 
 
@@ -861,30 +851,31 @@ class GetHistoryHandler(BaseActionHandler):
         return True, "历史消息获取成功。", {"messages": converted_messages}
 
 
-# --- 这就是我们的“花式玩法名录”（动作工厂） ---
+# --- ❤❤❤ 最终高潮点！更新我们的“花名册”！❤❤❤ ---
+# 现在 key 是 Core 发来的、脱掉了平台外衣的“动作别名”！
 ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
-    "action.message.recall": RecallMessageHandler(),
-    "action.user.poke": PokeUserHandler(),
-    "action.request.friend.approve": HandleFriendRequestHandler(),
-    "action.request.friend.reject": HandleFriendRequestHandler(),
-    "action.conversation.get_info": GetGroupInfoHandler(),
-    "action.request.conversation.approve": HandleGroupRequestHandler(),
-    "action.request.conversation.reject": HandleGroupRequestHandler(),
-    "action.bot.get_profile": GetBotProfileHandler(),
-    "action.message.send_forward": SendForwardMessageHandler(),
-    "action.conversation.kick_member": GroupKickHandler(),
-    "action.conversation.ban_member": GroupBanHandler(),
-    "action.conversation.ban_all_members": GroupWholeBanHandler(),
-    "action.conversation.set_member_card": GroupCardHandler(),
-    "action.conversation.set_member_title": GroupSpecialTitleHandler(),
-    "action.conversation.leave": GroupLeaveHandler(),
-    "action.conversation.sign_in": GroupSignInHandler(),
-    "action.bot.set_status": SetBotStatusHandler(),
-    "action.bot.set_avatar": SetBotAvatarHandler(),
-    "action.conversation.get_history": GetHistoryHandler(),
+    "message.recall": RecallMessageHandler(),
+    "user.poke": PokeUserHandler(),
+    "request.friend.approve": HandleFriendRequestHandler(),
+    "request.friend.reject": HandleFriendRequestHandler(),
+    "conversation.get_info": GetGroupInfoHandler(),
+    "request.conversation.approve": HandleGroupRequestHandler(),
+    "request.conversation.reject": HandleGroupRequestHandler(),
+    "bot.get_profile": GetBotProfileHandler(),
+    "message.send_forward": SendForwardMessageHandler(),
+    "conversation.kick_member": GroupKickHandler(),
+    "conversation.ban_member": GroupBanHandler(),
+    "conversation.ban_all_members": GroupWholeBanHandler(),
+    "conversation.set_member_card": GroupCardHandler(),
+    "conversation.set_member_title": GroupSpecialTitleHandler(),
+    "conversation.leave": GroupLeaveHandler(),
+    "conversation.sign_in": GroupSignInHandler(),
+    "bot.set_status": SetBotStatusHandler(),
+    "bot.set_avatar": SetBotAvatarHandler(),
+    "conversation.get_history": GetHistoryHandler(),
 }
 
 
-def get_action_handler(action_type: str) -> Optional[BaseActionHandler]:
-    """根据动作类型，从名录中取出对应的玩法"""
-    return ACTION_HANDLERS.get(action_type)
+def get_action_handler(action_alias: str) -> Optional[BaseActionHandler]:
+    """根据动作别名，从名录中取出对应的玩法"""
+    return ACTION_HANDLERS.get(action_alias)
