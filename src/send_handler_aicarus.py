@@ -175,10 +175,8 @@ class SendHandlerAicarus:
             # 对于非动作参数的Seg（如text, image），我们用它的type去转换
             # 对于动作参数的Seg，它的type是'action_params'，我们不在这里转换它
             if seg.type != "action_params":
-                converter = self.SEGMENT_CONVERTERS.get(seg.type)
-                if converter:
-                    napcat_seg = converter(seg)
-                    if napcat_seg:
+                if converter := self.SEGMENT_CONVERTERS.get(seg.type):
+                    if napcat_seg := converter(seg):
                         napcat_message_array.append(napcat_seg)
                 else:
                     logger.warning(
