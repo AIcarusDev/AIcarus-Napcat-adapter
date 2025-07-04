@@ -424,7 +424,8 @@ class HandleFriendRequestHandler(BaseActionHandler):
     ) -> Tuple[bool, str, Dict[str, Any]]:
         action_data = action_seg.data
         request_flag = str(action_data.get("request_flag", ""))
-        approve_action = action_seg.type == "action.request.friend.approve"
+        # 啊~❤ 现在 approve 参数直接从 data 里拿，多方便！
+        approve_action = action_data.get("approve", False)
         remark = action_data.get("remark")
 
         if not request_flag:
@@ -465,7 +466,8 @@ class HandleGroupRequestHandler(BaseActionHandler):
     ) -> Tuple[bool, str, Dict[str, Any]]:
         action_data = action_seg.data
         request_flag = str(action_data.get("request_flag", ""))
-        approve_action = action_seg.type == "action.request.conversation.approve"
+        # 啊~❤ 这里也一样！
+        approve_action = action_data.get("approve", False)
         reason = action_data.get("reason")
         core_original_request_sub_type = action_data.get("original_request_sub_type")
 
@@ -854,25 +856,24 @@ class GetHistoryHandler(BaseActionHandler):
 # --- ❤❤❤ 最终高潮点！更新我们的“花名册”！❤❤❤ ---
 # 现在 key 是 Core 发来的、脱掉了平台外衣的“动作别名”！
 ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
-    "message.recall": RecallMessageHandler(),
-    "user.poke": PokeUserHandler(),
-    "request.friend.approve": HandleFriendRequestHandler(),
-    "request.friend.reject": HandleFriendRequestHandler(),
-    "conversation.get_info": GetGroupInfoHandler(),
-    "request.conversation.approve": HandleGroupRequestHandler(),
-    "request.conversation.reject": HandleGroupRequestHandler(),
-    "bot.get_profile": GetBotProfileHandler(),
-    "message.send_forward": SendForwardMessageHandler(),
-    "conversation.kick_member": GroupKickHandler(),
-    "conversation.ban_member": GroupBanHandler(),
-    "conversation.ban_all_members": GroupWholeBanHandler(),
-    "conversation.set_member_card": GroupCardHandler(),
-    "conversation.set_member_title": GroupSpecialTitleHandler(),
-    "conversation.leave": GroupLeaveHandler(),
-    "conversation.sign_in": GroupSignInHandler(),
-    "bot.set_status": SetBotStatusHandler(),
-    "bot.set_avatar": SetBotAvatarHandler(),
-    "conversation.get_history": GetHistoryHandler(),
+    # 啊~❤ 看这些名字，多么统一，多么性感！
+    "recall_message": RecallMessageHandler(),
+    "poke_user": PokeUserHandler(),
+    "handle_friend_request": HandleFriendRequestHandler(),
+    "get_group_info": GetGroupInfoHandler(),
+    "handle_group_request": HandleGroupRequestHandler(),
+    "get_bot_profile": GetBotProfileHandler(),
+    "send_forward_message": SendForwardMessageHandler(),
+    "kick_member": GroupKickHandler(),
+    "ban_member": GroupBanHandler(),
+    "ban_all_members": GroupWholeBanHandler(),
+    "set_member_card": GroupCardHandler(),
+    "set_member_title": GroupSpecialTitleHandler(),
+    "leave_conversation": GroupLeaveHandler(),
+    "sign_in": GroupSignInHandler(),
+    "set_status": SetBotStatusHandler(),
+    "set_avatar": SetBotAvatarHandler(),
+    "get_history": GetHistoryHandler(),
 }
 
 

@@ -37,7 +37,7 @@ class SendHandlerAicarus:
             "music": self._convert_music_seg,
         }
 
-    # --- 这是各种“打磨工具”的具体实现 ---
+    # --- 这是各种“打磨工具”的具体实现 (这部分不需要改动) ---
 
     def _convert_text_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
         """处理文字，最简单了，没劲。"""
@@ -172,13 +172,18 @@ class SendHandlerAicarus:
     ) -> List[Dict[str, Any]]:
         napcat_message_array: List[Dict[str, Any]] = []
         for seg in aicarus_segments:
-            converter = self.SEGMENT_CONVERTERS.get(seg.type)
-            if converter:
-                napcat_seg = converter(seg)
-                if napcat_seg:
-                    napcat_message_array.append(napcat_seg)
-            else:
-                logger.warning(f"发送处理器: 还不知道怎么转换这种情话呢: {seg.type}")
+            # 对于非动作参数的Seg（如text, image），我们用它的type去转换
+            # 对于动作参数的Seg，它的type是'action_params'，我们不在这里转换它
+            if seg.type != "action_params":
+                converter = self.SEGMENT_CONVERTERS.get(seg.type)
+                if converter:
+                    napcat_seg = converter(seg)
+                    if napcat_seg:
+                        napcat_message_array.append(napcat_seg)
+                else:
+                    logger.warning(
+                        f"发送处理器: 还不知道怎么转换这种情话呢: {seg.type}"
+                    )
         return napcat_message_array
 
     async def handle_aicarus_action(self, raw_aicarus_event_dict: dict) -> None:
@@ -208,45 +213,50 @@ class SendHandlerAicarus:
             f"发送处理器: 已将动作 '{aicarus_event.event_id}' 的直接结果 ({'success' if success else 'failure'}) 发回给主人。"
         )
 
+    # --- ❤❤❤ 欲望喷射点！这就是我们改造的核心！❤❤❤ ---
     async def _execute_action(self, event: Event) -> Tuple[bool, str, Dict[str, Any]]:
         """统一的动作执行器，无论是发消息还是其他骚操作"""
 
-        # --- ❤❤❤ 最终高潮点！从新的event_type中解析出真正的动作别名！❤❤❤ ---
-        full_action_type = event.event_type  # e.g., "action.napcat.message.send"
+        full_action_type = event.event_type  # e.g., "action.napcat_qq.send_message"
 
-        # 我们只关心 'action.' 后面的部分
         if not full_action_type.startswith("action."):
             error_msg = f"收到了一个非动作类型的事件: {full_action_type}"
             logger.warning(error_msg)
             return False, error_msg, {}
 
-        # 把 "action." 和平台ID都脱掉，露出最里面的动作别名
-        # e.g., "action.napcat.message.send" -> "message.send"
-        # e.g., "action.napcat.user.poke" -> "user.poke"
-        action_alias = ".".join(full_action_type.split(".")[2:])
+        # 啊~❤ 一步到胃，直接取最后一个点后面的部分作为我们的“动作别名”！
+        action_alias = full_action_type.split(".")[-1]
 
-        logger.info(f"发送处理器正在分发动作，别名: {action_alias}")
+        logger.info(f"发送处理器正在分发动作，别名: '{action_alias}'")
 
         try:
-            # 1. 专门为 action.message.send 开一个快速通道，因为它最常用
-            if action_alias == "message.send":
+            # 1. 专门为 send_message 开一个快速通道，因为它最常用
+            if action_alias == "send_message":
                 return await self._handle_send_message_action(event)
 
             # 2. 对于所有其他类型的动作，都统一从 action_definitions.py 里找处理器
-            # 我们用新的动作别名去查找
             handler = get_action_handler(action_alias)
             if handler:
-                if (
-                    event.content
-                    and isinstance(event.content, list)
-                    and len(event.content) > 0
-                ):
-                    action_seg = event.content[0]
-                    return await handler.execute(action_seg, event, self)
-                else:
-                    error_msg = f"动作 '{action_alias}' 找到了处理器，但事件内容为空，无法执行。"
-                    logger.error(error_msg)
-                    return False, error_msg, {}
+                # 找到第一个类型为 'action_params' 的 Seg，把它里面的 data 交给 handler
+                action_seg = None
+                for seg in event.content:
+                    if seg.type == "action_params":
+                        action_seg = seg
+                        break
+
+                # 如果没有找到 action_params，可能是个不需要参数的动作，或者事件构造有误
+                if action_seg is None:
+                    # 对于某些不需要参数的动作，我们创建一个空的Seg给它
+                    if event.content:
+                        action_seg = (
+                            event.content[0]
+                            if event.content
+                            else Seg(type=action_alias, data={})
+                        )
+                    else:
+                        action_seg = Seg(type=action_alias, data={})
+
+                return await handler.execute(action_seg, event, self)
 
             # 3. 如果找不到任何处理器
             error_msg = f"未知的动作别名 '{action_alias}'，我不知道该怎么做。"
