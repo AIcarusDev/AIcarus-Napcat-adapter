@@ -88,7 +88,11 @@ async def _call_napcat_api(
                 f"Napcat API '{action}' (echo: {request_echo_id}) 调用成功。响应: {response_data.get('data')}"
             )
             # 即使 data 字段不存在，也返回一个空字典表示成功
-            return response_data.get("data") if response_data.get("data") is not None else {}
+            return (
+                response_data.get("data")
+                if response_data.get("data") is not None
+                else {}
+            )
         else:
             error_msg = (
                 response_data.get("message", "未知错误")
@@ -182,6 +186,7 @@ async def napcat_get_group_list(
 
 # --- 我新加的几个 API 调用函数，哼 ---
 
+
 async def napcat_set_group_sign(
     server_connection: Any, group_id: Union[str, int]
 ) -> Optional[Dict[str, Any]]:
@@ -190,6 +195,7 @@ async def napcat_set_group_sign(
         server_connection, "set_group_sign", {"group_id": int(group_id)}
     )
 
+
 async def napcat_set_online_status(
     server_connection: Any, status: int, ext_status: int, battery_status: int
 ) -> Optional[Dict[str, Any]]:
@@ -197,9 +203,10 @@ async def napcat_set_online_status(
     params = {
         "status": status,
         "ext_status": ext_status,
-        "battery_status": battery_status
+        "battery_status": battery_status,
     }
     return await _call_napcat_api(server_connection, "set_online_status", params)
+
 
 async def napcat_set_qq_avatar(
     server_connection: Any, file: str
@@ -207,28 +214,40 @@ async def napcat_set_qq_avatar(
     """设置QQ头像。"""
     return await _call_napcat_api(server_connection, "set_qq_avatar", {"file": file})
 
+
 async def napcat_get_friend_msg_history(
-    server_connection: Any, user_id: Union[str, int], message_seq: Optional[Union[str, int]] = None, count: int = 20
+    server_connection: Any,
+    user_id: Union[str, int],
+    message_seq: Optional[Union[str, int]] = None,
+    count: int = 20,
 ) -> Optional[List[Dict[str, Any]]]:
     """获取私聊历史记录。"""
     params: Dict[str, Any] = {"user_id": int(user_id), "count": count}
     if message_seq is not None:
         params["message_seq"] = str(message_seq)
-    
-    data = await _call_napcat_api(server_connection, "get_friend_msg_history", params, timeout_seconds=30)
+
+    data = await _call_napcat_api(
+        server_connection, "get_friend_msg_history", params, timeout_seconds=30
+    )
     if data and isinstance(data.get("messages"), list):
         return data["messages"]
     return None
 
+
 async def napcat_get_group_msg_history(
-    server_connection: Any, group_id: Union[str, int], message_seq: Optional[Union[str, int]] = None, count: int = 20
+    server_connection: Any,
+    group_id: Union[str, int],
+    message_seq: Optional[Union[str, int]] = None,
+    count: int = 20,
 ) -> Optional[List[Dict[str, Any]]]:
     """获取群消息历史记录。"""
     params: Dict[str, Any] = {"group_id": int(group_id), "count": count}
     if message_seq is not None:
-        params["message_seq"] = int(message_seq) # gocq-api 文档说是 int64
+        params["message_seq"] = int(message_seq)  # gocq-api 文档说是 int64
 
-    data = await _call_napcat_api(server_connection, "get_group_msg_history", params, timeout_seconds=30)
+    data = await _call_napcat_api(
+        server_connection, "get_group_msg_history", params, timeout_seconds=30
+    )
     if data and isinstance(data.get("messages"), list):
         return data["messages"]
     return None
@@ -292,7 +311,6 @@ def convert_image_to_gif_base64(image_base64: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"转换图片为 GIF 格式时发生错误: {e}")
         return None
-
 
 
 if __name__ == "__main__":
