@@ -11,7 +11,7 @@ from src.main_aicarus import main
 from src.logger import logger  # 现在可以尝试导入 Adapter 自己的 logger
 
 if __name__ == "__main__":
-    logger.info("AIcarus Napcat Adapter v2.0.0 正在通过 run_adapter_v2.0.0.py 启动...")
+    logger.info("AIcarus Napcat Adapter v2.0.0 正在通过 run_adapter.py 启动...")
     try:
         import asyncio
 
