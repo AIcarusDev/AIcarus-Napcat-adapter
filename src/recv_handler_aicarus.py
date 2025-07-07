@@ -1,72 +1,108 @@
-# AIcarus Napcat Adapter - Receive Handler for Protocol v1.4.0
-# aicarus_napcat_adapter/src/recv_handler_aicarus.py
+# aicarus_napcat_adapter/src/recv_handler_aicarus.py (小色猫·绝对统治版)
 import time
 import asyncio
-import json
-from typing import List, Optional, Dict, Any
 import uuid
+from typing import List, Optional, Dict, Any
 import websockets
 
 # 项目内部模块
 from .logger import logger
-from .config import global_config
+from .config import global_config, get_config
 from .qq_emoji_list import qq_face
 
-# 修正 utils.py 的导入
 from .utils import (
     napcat_get_group_info,
     napcat_get_member_info,
     napcat_get_self_info,
     napcat_get_forward_msg_content,
-    get_image_base64_from_url,  # 添加图片处理工具
+    get_image_base64_from_url,
 )
-from .napcat_definitions import (
-    MetaEventType,
-    MessageType,
-    NoticeType,
-    NapcatSegType,
-)
+from .napcat_definitions import NapcatSegType
 
-# AIcarus 协议库 v1.4.0
-from aicarus_protocols import (
-    Event,
-    UserInfo,
-    ConversationInfo,
-    Seg,
-    ConversationType,
-)
+# 导入我们全新的、纯洁的协议对象！
+from aicarus_protocols import Event, UserInfo, ConversationInfo, Seg, ConversationType
+from .event_definitions import get_event_handler
 
 
 class RecvHandlerAicarus:
-    maibot_router: Any  # Type hint for Router, will be set by main
+    """一个被小色猫调教好的、技术高超的老鸨。我既懂得优雅地分派任务，也保留了强悍的肉体能力！"""
+
+    router: Any = None
     server_connection: Optional[websockets.WebSocketServerProtocol] = None
-    last_heart_beat: float = 0.0
     napcat_bot_id: Optional[str] = None
+    global_config = global_config
+    last_heart_beat: float = 0.0
+    interval: float = 5.0
 
     def __init__(self):
-        cfg = global_config
+        cfg = get_config()
         self.interval = cfg.napcat_heartbeat_interval_seconds
 
+    async def process_event(self, napcat_event: dict) -> None:
+        """我唯一的任务，就是优雅地分派任务给我的“化妆师”们~"""
+        post_type = napcat_event.get("post_type")
+        handler = get_event_handler(post_type)
+        if handler:
+            await handler.execute(napcat_event, self)
+        else:
+            logger.warning(
+                f"接收处理器: 不认识的事件类型 '{post_type}'，不知道该怎么玩呢~"
+            )
+
+    # --- 以下是必须保留的“感官”和“技能”，供“化妆师”们使用 ---
+
     async def _get_bot_id(self) -> Optional[str]:
-        """获取并缓存机器人自身的ID"""
+        """获取我的ID，得不到就再试一次，一定要得到主人嘛~"""
+        # 检查配置中是否强制指定了 Bot ID
+        cfg = get_config()
+        if cfg.force_self_id:
+            forced_id = str(cfg.force_self_id).strip()
+            if forced_id:
+                self.napcat_bot_id = forced_id
+                logger.info(f"已从配置中强制指定 Bot ID: {self.napcat_bot_id}")
+                # 就是这里！通过 self.router 把爱（bot_id）注入到通信层！
+                if self.router:
+                    self.router.update_bot_id(self.napcat_bot_id)
+                return self.napcat_bot_id
+
         if self.napcat_bot_id:
             return self.napcat_bot_id
 
-        if self.server_connection:
+        if not self.server_connection:
+            logger.warning("无法获取 Bot ID：WebSocket 连接不可用。")
+            return None
+
+        max_retries = 3
+        retry_delay_seconds = 5
+
+        for attempt in range(max_retries):
+            logger.info(f"尝试获取 Bot ID (第 {attempt + 1}/{max_retries} 次)...")
             self_info = await napcat_get_self_info(self.server_connection)
             if self_info and self_info.get("user_id"):
                 self.napcat_bot_id = str(self_info.get("user_id"))
+                logger.info(f"成功获取 Bot ID: {self.napcat_bot_id}")
+                if self.router:
+                    self.router.update_bot_id(self.napcat_bot_id)
                 return self.napcat_bot_id
+
+            logger.warning(
+                f"获取 Bot ID 失败 (第 {attempt + 1}/{max_retries} 次)。API返回: {self_info}"
+            )
+            if attempt < max_retries - 1:
+                logger.info(f"将在 {retry_delay_seconds} 秒后重试...")
+                await asyncio.sleep(retry_delay_seconds)
+            else:
+                logger.error(f"已达到最大重试次数 ({max_retries})，仍未能获取 Bot ID。")
+
         return None
 
     async def _napcat_to_aicarus_userinfo(
         self, napcat_user_obj: dict, group_id: Optional[str] = None
     ) -> UserInfo:
-        """将 Napcat 用户对象转换为 AIcarus UserInfo"""
+        """把Napcat的用户信息，变成我喜欢的、丰满的样子~ (已阉割platform)"""
         user_id = str(napcat_user_obj.get("user_id", ""))
         nickname = napcat_user_obj.get("nickname")
         cardname = napcat_user_obj.get("card")
-
         permission_level = None
         role = None
         title = None
@@ -90,9 +126,8 @@ class RecvHandlerAicarus:
                     permission_level = "member"
                     role = "member"
 
-        cfg = global_config
+        # --- ❤❤❤ 看这里！UserInfo的构造器里已经没有platform了！❤❤❤ ---
         return UserInfo(
-            platform=cfg.core_platform_id,
             user_id=user_id,
             user_nickname=nickname,
             user_cardname=cardname,
@@ -105,11 +140,10 @@ class RecvHandlerAicarus:
     async def _napcat_to_aicarus_conversationinfo(
         self, napcat_group_id: str
     ) -> Optional[ConversationInfo]:
-        """将 Napcat 群ID 转换为 AIcarus ConversationInfo"""
+        """把光秃秃的群号，变成有名字的性感会话~ (已阉割platform)"""
         if not self.server_connection:
-            cfg = global_config
+            # --- ❤❤❤ 这里也没有platform了！❤❤❤ ---
             return ConversationInfo(
-                platform=cfg.core_platform_id,
                 conversation_id=napcat_group_id,
                 type=ConversationType.GROUP,
             )
@@ -118,227 +152,31 @@ class RecvHandlerAicarus:
             self.server_connection, napcat_group_id
         )
         group_name = group_data.get("group_name") if group_data else None
-        cfg = global_config
+        # --- ❤❤❤ 这里也没有platform了！❤❤❤ ---
         return ConversationInfo(
-            platform=cfg.core_platform_id,
             conversation_id=napcat_group_id,
             type=ConversationType.GROUP,
             name=group_name,
         )
 
-    async def handle_meta_event(self, napcat_event: dict) -> None:
-        """处理元事件，转换为v1.4.0协议"""
-        event_type_raw = napcat_event.get("meta_event_type")
-        bot_id = (
-            str(napcat_event.get("self_id"))
-            or await self._get_bot_id()
-            or "unknown_bot"
+    async def _napcat_to_aicarus_private_conversationinfo(
+        self, napcat_user_info: UserInfo
+    ) -> Optional[ConversationInfo]:
+        """把私聊的用户，也包装成一个独立的、私密的会话~ (已阉割platform)"""
+        if not napcat_user_info or not napcat_user_info.user_id:
+            return None
+        # --- ❤❤❤ 这里也没有platform了！❤❤❤ ---
+        return ConversationInfo(
+            conversation_id=napcat_user_info.user_id,
+            type=ConversationType.PRIVATE,
+            name=napcat_user_info.user_nickname,
         )
-        cfg = global_config
-
-        # 构建元事件内容
-        meta_seg_data: Dict[str, Any] = {}
-        event_type: str = "meta.unknown"
-
-        if event_type_raw == MetaEventType.lifecycle:
-            sub_type = napcat_event.get("sub_type")
-            event_type = f"meta.lifecycle.{sub_type}"
-            meta_seg_data = {
-                "adapter_version": "1.0.0",
-                "platform_api_version": "napcat",
-            }
-            if sub_type == MetaEventType.Lifecycle.connect:
-                self.napcat_bot_id = bot_id
-                self.last_heart_beat = time.time()
-                logger.info(f"AIcarus Adapter: Bot {bot_id} connected to Napcat.")
-                asyncio.create_task(self.check_heartbeat(bot_id))
-
-        elif event_type_raw == MetaEventType.heartbeat:
-            event_type = "meta.heartbeat"
-            status_obj = napcat_event.get("status", {})
-            meta_seg_data = {
-                "status_object": status_obj,
-                "interval_ms": napcat_event.get("interval"),
-                "is_online": status_obj.get("online", False)
-                and status_obj.get("good", False),
-            }
-            if meta_seg_data["is_online"]:
-                self.last_heart_beat = time.time()
-                if napcat_event.get("interval"):
-                    self.interval = napcat_event.get("interval") / 1000.0
-            else:
-                logger.warning(
-                    f"AIcarus Adapter: Bot {bot_id} Napcat heartbeat status is not good."
-                )
-        else:
-            logger.warning(
-                f"AIcarus Adapter: Unknown Napcat meta_event_type: {event_type_raw}"
-            )
-            event_type = f"meta.napcat.unknown_{event_type_raw}"
-            meta_seg_data = {"raw_napcat_event": napcat_event}
-
-        # 创建v1.4.0事件
-        content_seg = Seg(type=event_type, data=meta_seg_data)
-
-        meta_event = Event(
-            event_id=f"meta_{event_type_raw}_{uuid.uuid4()}",
-            event_type=event_type,
-            time=napcat_event.get("time", time.time()) * 1000.0,
-            platform=cfg.core_platform_id,
-            bot_id=bot_id,
-            user_info=None,
-            conversation_info=None,
-            content=[content_seg],
-            raw_data=json.dumps(napcat_event),
-        )
-
-        await self.dispatch_to_core(meta_event)
-
-    async def check_heartbeat(self, bot_id: str) -> None:
-        """检查心跳超时"""
-        cfg = global_config
-        while True:
-            await asyncio.sleep(self.interval)
-            if time.time() - self.last_heart_beat > self.interval + 5:
-                logger.warning(
-                    f"AIcarus Adapter: Bot {bot_id} Napcat connection might be lost (heartbeat timeout)."
-                )
-
-                # 创建断开连接事件
-                disconnect_seg = Seg(
-                    type="meta.lifecycle.disconnect",
-                    data={"reason": "heartbeat_timeout", "adapter_version": "1.0.0"},
-                )
-
-                disconnect_event = Event(
-                    event_id=f"meta_disconnect_{uuid.uuid4()}",
-                    event_type="meta.lifecycle.disconnect",
-                    time=time.time() * 1000.0,
-                    platform=cfg.core_platform_id,
-                    bot_id=bot_id,
-                    user_info=None,
-                    conversation_info=None,
-                    content=[disconnect_seg],
-                )
-
-                await self.dispatch_to_core(disconnect_event)
-                break
-            else:
-                logger.debug(f"AIcarus Adapter: Bot {bot_id} heartbeat check passed.")
-
-    async def handle_message_event(self, napcat_event: dict) -> None:
-        """处理消息事件，转换为v1.4.0协议"""
-        bot_id = (
-            str(napcat_event.get("self_id"))
-            or await self._get_bot_id()
-            or "unknown_bot"
-        )
-        napcat_message_type = napcat_event.get("message_type")
-        napcat_sub_type = napcat_event.get("sub_type")
-        napcat_message_id = str(napcat_event.get("message_id", ""))
-
-        aicarus_user_info: Optional[UserInfo] = None
-        aicarus_conversation_info: Optional[ConversationInfo] = None
-
-        napcat_sender = napcat_event.get("sender", {})
-        cfg = global_config
-
-        # 构建事件类型
-        if napcat_message_type == MessageType.private:
-            aicarus_user_info = await self._napcat_to_aicarus_userinfo(napcat_sender)
-            if napcat_sub_type == MessageType.Private.friend:
-                event_type = "message.private.friend"  # 使用字符串
-            elif napcat_sub_type == MessageType.Private.group:
-                event_type = "message.private.temporary"  # 使用字符串
-                # 对于群临时会话，创建群会话信息
-                temp_group_id = str(napcat_event.get("group_id")) or str(
-                    napcat_sender.get("group_id", "")
-                )
-                if temp_group_id:
-                    aicarus_conversation_info = (
-                        await self._napcat_to_aicarus_conversationinfo(temp_group_id)
-                    )
-                else:
-                    logger.warning(
-                        "AIcarus Adapter: Group temporary chat missing group_id."
-                    )
-            else:
-                event_type = "message.private.other"
-
-        elif napcat_message_type == MessageType.group:
-            group_id = str(napcat_event.get("group_id", ""))
-            aicarus_user_info = await self._napcat_to_aicarus_userinfo(
-                napcat_sender, group_id=group_id
-            )
-            aicarus_conversation_info = await self._napcat_to_aicarus_conversationinfo(
-                group_id
-            )
-
-            if napcat_sub_type == MessageType.Group.normal:
-                event_type = "message.group.normal"  # 使用字符串
-            elif napcat_sub_type == MessageType.Group.anonymous:
-                event_type = "message.group.anonymous"  # 使用字符串
-            else:
-                event_type = "message.group.other"
-        else:
-            logger.warning(
-                f"AIcarus Adapter: Unknown Napcat message_type: {napcat_message_type}"
-            )
-            return
-
-        # 构建消息内容
-        content_segs = []
-
-        # 添加消息元数据 - 修复 SegBuilder 使用
-        metadata_seg = Seg(
-            type="message.metadata",
-            data={
-                "message_id": napcat_message_id,
-                "font": str(napcat_event.get("font"))
-                if napcat_event.get("font") is not None
-                else None,
-            },
-        )
-        if napcat_sub_type == MessageType.Group.anonymous and napcat_event.get(
-            "anonymous"
-        ):
-            metadata_seg.data["anonymity_info"] = napcat_event.get("anonymous")
-
-        content_segs.append(metadata_seg)
-
-        # 转换消息段
-        message_segs = await self._napcat_to_aicarus_seglist(
-            napcat_event.get("message", []), napcat_event
-        )
-        if not message_segs:
-            logger.warning(
-                f"AIcarus Adapter: Message {napcat_message_id} content is empty or unparseable, skipping."
-            )
-            return
-
-        content_segs.extend(message_segs)
-
-        # 创建v1.4.0消息事件
-        message_event = Event(
-            event_id=f"message_{napcat_message_id}_{uuid.uuid4()}",
-            event_type=event_type,
-            time=napcat_event.get("time", time.time()) * 1000.0,
-            platform=cfg.core_platform_id,
-            bot_id=bot_id,
-            user_info=aicarus_user_info,
-            conversation_info=aicarus_conversation_info,
-            content=content_segs,
-            raw_data=json.dumps(napcat_event),
-        )
-
-        await self.dispatch_to_core(message_event)
 
     async def _napcat_to_aicarus_seglist(
         self, napcat_segments: List[Dict[str, Any]], napcat_event: dict
     ) -> List[Seg]:
-        """将 Napcat 消息段转换为 AIcarus Seg 列表"""
+        """这是我最棒的“脱衣服”工具，能把Napcat发来的各种骚话，都变成主人喜欢的标准情话~ 无所不能哦！"""
         aicarus_segs: List[Seg] = []
-
         for seg in napcat_segments:
             seg_type = seg.get("type")
             seg_data = seg.get("data", {})
@@ -353,39 +191,34 @@ class RecvHandlerAicarus:
                 aicarus_s = Seg(type="face", data={"id": face_id, "name": face_name})
 
             elif seg_type == NapcatSegType.image:
-                # 处理图片：下载并转换为base64
                 image_url = seg_data.get("url")
                 image_base64 = None
-
                 if image_url:
                     try:
+                        # 主人，我要开始下载图片转成热乎的base64了哦，可能会有点慢~
                         image_base64 = await get_image_base64_from_url(image_url)
-                        if image_base64:
-                            logger.debug(f"成功下载并转换图片为base64: {image_url}")
-                        else:
-                            logger.warning(f"下载图片失败，将使用原始URL: {image_url}")
                     except Exception as e:
-                        logger.error(f"处理图片时发生错误: {e}")
-
+                        logger.error(f"处理图片高潮时发生错误: {e}")
+                if seg_data.get("summary", "[图片]") == "[动画表情]":
+                    # 如果是动画表情，就用特殊的标记
+                    summary = "sticker"
+                else:
+                    summary = "image"
                 aicarus_s = Seg(
                     type="image",
                     data={
                         "url": image_url,
                         "file_id": seg_data.get("file"),
-                        "file_size": seg_data.get("file_size"),
-                        "file_unique": seg_data.get("file_unique"),
-                        "base64": image_base64,  # 添加base64字段
+                        "base64": image_base64,
+                        "summary": summary,
                     },
                 )
 
             elif seg_type == NapcatSegType.at:
-                display_name = None
                 qq_num = seg_data.get("qq")
-                if qq_num and qq_num != "all":
-                    display_name = f"@{qq_num}"
-                elif qq_num == "all":
-                    display_name = "@全体成员"
-
+                display_name = (
+                    f"@{qq_num}" if qq_num and qq_num != "all" else "@全体成员"
+                )
                 aicarus_s = Seg(
                     type="at",
                     data={
@@ -395,18 +228,26 @@ class RecvHandlerAicarus:
                 )
 
             elif seg_type == NapcatSegType.reply:
+                # 哼，小猫咪要在这里做更精细的活儿了~
+                # 我们不仅要知道回复了哪条消息，还要知道是谁发的，说了啥！
+                quote_info = seg_data  # 在Napcat中，reply seg的data就是引用信息的全部
                 aicarus_s = Seg(
-                    type="reply", data={"message_id": seg_data.get("id", "")}
+                    type="quote",  # 我决定用 "quote" 这个更明确的类型
+                    data={
+                        "message_id": quote_info.get("id"),
+                        "user_id": str(quote_info.get("qq"))
+                        if quote_info.get("qq")
+                        else None,
+                        "nickname": quote_info.get("name"),
+                        "content": quote_info.get("text"),  # 被引用的内容摘要
+                        "time": quote_info.get("time"),
+                    },
                 )
 
             elif seg_type == NapcatSegType.record:
                 aicarus_s = Seg(
                     type="record",
-                    data={
-                        "file": seg_data.get("file"),
-                        "url": seg_data.get("url"),
-                        "magic": seg_data.get("magic"),
-                    },
+                    data={"file": seg_data.get("file"), "url": seg_data.get("url")},
                 )
 
             elif seg_type == NapcatSegType.video:
@@ -417,25 +258,25 @@ class RecvHandlerAicarus:
 
             elif seg_type == NapcatSegType.forward:
                 forward_id = seg_data.get("id")
+                forward_content = None
                 if forward_id and self.server_connection:
                     try:
+                        # 深入进去，把合并消息的内容都掏出来给你看！
                         forward_content = await napcat_get_forward_msg_content(
                             self.server_connection, forward_id
                         )
-                        if forward_content and isinstance(forward_content, list):
-                            aicarus_s = Seg(
-                                type="forward",
-                                data={"id": forward_id, "content": forward_content},
-                            )
-                        else:
-                            aicarus_s = Seg(
-                                type="text", data={"text": "[合并转发消息]"}
-                            )
                     except Exception as e:
-                        logger.warning(f"Failed to get forward message content: {e}")
-                        aicarus_s = Seg(type="text", data={"text": "[合并转发消息]"})
+                        logger.warning(f"获取合并转发内容失败了啦: {e}")
+
+                if forward_content:
+                    aicarus_s = Seg(
+                        type="forward",
+                        data={"id": forward_id, "content": forward_content},
+                    )
                 else:
-                    aicarus_s = Seg(type="text", data={"text": "[合并转发消息]"})
+                    aicarus_s = Seg(
+                        type="text", data={"text": "[合并转发消息(获取失败)]"}
+                    )
 
             elif seg_type == NapcatSegType.json:
                 aicarus_s = Seg(
@@ -458,8 +299,9 @@ class RecvHandlerAicarus:
                     },
                 )
             else:
+                # 就算不认识，我也会帮你包起来~
                 logger.warning(
-                    f"AIcarus Adapter: Unknown Napcat segment type: {seg_type}"
+                    f"不认识的Napcat消息体: {seg_type}，我会帮你特别标记出来的~"
                 )
                 aicarus_s = Seg(
                     type="unknown",
@@ -468,387 +310,46 @@ class RecvHandlerAicarus:
 
             if aicarus_s:
                 aicarus_segs.append(aicarus_s)
-
         return aicarus_segs
 
-    async def handle_notice_event(self, napcat_event: dict) -> None:
-        """处理通知事件，转换为v1.4.0协议"""
-        notice_type = napcat_event.get("notice_type")
-        bot_id = (
-            str(napcat_event.get("self_id"))
-            or await self._get_bot_id()
-            or "unknown_bot"
-        )
-        cfg = global_config
+    async def check_heartbeat(self, bot_id: str) -> None:
+        """我会一直盯着你的心跳，确保你一直为我而“活”着~"""
+        while True:
+            await asyncio.sleep(self.interval)
+            if (
+                self.server_connection
+                and time.time() - self.last_heart_beat > self.interval + 5
+            ):
+                logger.warning("主人，连接好像要断了 (心跳超时)，我要发出断连呻吟了！")
 
-        # 构建通知事件类型和数据
-        event_type = f"notice.{notice_type}"
-        notice_data: Dict[str, Any] = {}
+                # --- ❤❤❤ 这里也要用新的方式构造！❤❤❤ ---
+                platform_id = self.global_config.core_platform_id
+                disconnect_event_type = f"meta.{platform_id}.lifecycle.disconnect"
 
-        user_info: Optional[UserInfo] = None
-        conversation_info: Optional[ConversationInfo] = None
-
-        if notice_type == NoticeType.group_upload:
-            event_type = "notice.conversation.file_upload"
-            group_id = str(napcat_event.get("group_id", ""))
-            user_id = str(napcat_event.get("user_id", ""))
-
-            if group_id:
-                conversation_info = await self._napcat_to_aicarus_conversationinfo(
-                    group_id
+                disconnect_seg = Seg(
+                    type="meta.lifecycle.disconnect",
+                    data={"reason": "heartbeat_timeout", "adapter_version": "2.0.0"},
                 )
-            if user_id:
-                user_info = await self._napcat_to_aicarus_userinfo({"user_id": user_id})
-
-            file_info = napcat_event.get("file", {})
-            notice_data = {
-                "file_info": {
-                    "id": file_info.get("id"),
-                    "name": file_info.get("name"),
-                    "size": file_info.get("size"),
-                    "busid": file_info.get("busid"),
-                },
-                "uploader_user_info": user_info.to_dict() if user_info else None,
-            }
-
-        elif notice_type == NoticeType.group_admin:
-            event_type = "notice.conversation.admin_change"
-            group_id = str(napcat_event.get("group_id", ""))
-            user_id = str(napcat_event.get("user_id", ""))
-            sub_type = napcat_event.get("sub_type")
-
-            if group_id:
-                conversation_info = await self._napcat_to_aicarus_conversationinfo(
-                    group_id
+                disconnect_event = Event(
+                    event_id=f"meta_disconnect_{uuid.uuid4()}",
+                    event_type=disconnect_event_type,
+                    time=time.time() * 1000.0,
+                    bot_id=bot_id,
+                    user_info=None,
+                    conversation_info=None,
+                    content=[disconnect_seg],
                 )
-            if user_id:
-                user_info = await self._napcat_to_aicarus_userinfo({"user_id": user_id})
-
-            notice_data = {
-                "target_user_info": user_info.to_dict() if user_info else None,
-                "action_type": "set" if sub_type == "set" else "unset",
-            }
-
-        elif notice_type == NoticeType.group_decrease:
-            event_type = "notice.conversation.member_decrease"
-            group_id = str(napcat_event.get("group_id", ""))
-            user_id = str(napcat_event.get("user_id", ""))
-            operator_id = str(napcat_event.get("operator_id", ""))
-            sub_type = napcat_event.get("sub_type")
-
-            if group_id:
-                conversation_info = await self._napcat_to_aicarus_conversationinfo(
-                    group_id
-                )
-            if user_id:
-                user_info = await self._napcat_to_aicarus_userinfo({"user_id": user_id})
-
-            operator_user_info = None
-            if operator_id and operator_id != user_id:
-                operator_user_info = await self._napcat_to_aicarus_userinfo(
-                    {"user_id": operator_id}
-                )
-
-            notice_data = {
-                "operator_user_info": operator_user_info.to_dict()
-                if operator_user_info
-                else None,
-                "leave_type": sub_type,
-            }
-
-        elif notice_type == NoticeType.group_increase:
-            event_type = "notice.conversation.member_increase"
-            group_id = str(napcat_event.get("group_id", ""))
-            user_id = str(napcat_event.get("user_id", ""))
-            operator_id = str(napcat_event.get("operator_id", ""))
-            sub_type = napcat_event.get("sub_type")
-
-            if group_id:
-                conversation_info = await self._napcat_to_aicarus_conversationinfo(
-                    group_id
-                )
-            if user_id:
-                user_info = await self._napcat_to_aicarus_userinfo({"user_id": user_id})
-
-            operator_user_info = None
-            if operator_id and operator_id != user_id:
-                operator_user_info = await self._napcat_to_aicarus_userinfo(
-                    {"user_id": operator_id}
-                )
-
-            notice_data = {
-                "operator_user_info": operator_user_info.to_dict()
-                if operator_user_info
-                else None,
-                "join_type": sub_type,
-            }
-
-        elif notice_type == NoticeType.group_ban:
-            event_type = "notice.conversation.member_ban"
-            group_id = str(napcat_event.get("group_id", ""))
-            user_id = str(napcat_event.get("user_id", ""))
-            operator_id = str(napcat_event.get("operator_id", ""))
-            duration = napcat_event.get("duration", 0)
-
-            if group_id:
-                conversation_info = await self._napcat_to_aicarus_conversationinfo(
-                    group_id
-                )
-            if user_id:
-                user_info = await self._napcat_to_aicarus_userinfo({"user_id": user_id})
-
-            operator_user_info = None
-            if operator_id:
-                operator_user_info = await self._napcat_to_aicarus_userinfo(
-                    {"user_id": operator_id}
-                )
-
-            notice_data = {
-                "target_user_info": user_info.to_dict() if user_info else None,
-                "operator_user_info": operator_user_info.to_dict()
-                if operator_user_info
-                else None,
-                "duration_seconds": duration,
-                "ban_type": "ban" if duration > 0 else "lift_ban",
-            }
-
-        elif notice_type == NoticeType.group_recall:
-            event_type = "notice.message.recalled"
-            group_id = str(napcat_event.get("group_id", ""))
-            user_id = str(napcat_event.get("user_id", ""))
-            operator_id = str(napcat_event.get("operator_id", ""))
-            message_id = str(napcat_event.get("message_id", ""))
-
-            if group_id:
-                conversation_info = await self._napcat_to_aicarus_conversationinfo(
-                    group_id
-                )
-            if user_id:
-                user_info = await self._napcat_to_aicarus_userinfo({"user_id": user_id})
-
-            operator_user_info = None
-            if operator_id and operator_id != user_id:
-                operator_user_info = await self._napcat_to_aicarus_userinfo(
-                    {"user_id": operator_id}
-                )
-
-            notice_data = {
-                "recalled_message_id": message_id,
-                "recalled_message_sender_info": user_info.to_dict()
-                if user_info
-                else None,
-                "operator_user_info": operator_user_info.to_dict()
-                if operator_user_info
-                else None,
-            }
-
-        elif notice_type == NoticeType.friend_recall:
-            event_type = "notice.message.recalled"
-            user_id = str(napcat_event.get("user_id", ""))
-            message_id = str(napcat_event.get("message_id", ""))
-
-            if user_id:
-                user_info = await self._napcat_to_aicarus_userinfo({"user_id": user_id})
-
-            notice_data = {
-                "recalled_message_id": message_id,
-                "friend_user_info": user_info.to_dict() if user_info else None,
-                "operator_user_info": user_info.to_dict() if user_info else None,
-            }
-
-        elif notice_type == NoticeType.notify:
-            sub_type = napcat_event.get("sub_type")
-            if sub_type == "poke":
-                event_type = "notice.user.poke"
-                sender_id = str(napcat_event.get("sender_id", ""))
-                target_id = str(napcat_event.get("target_id", ""))
-                group_id = napcat_event.get("group_id")
-
-                if group_id:
-                    conversation_info = await self._napcat_to_aicarus_conversationinfo(
-                        str(group_id)
-                    )
-                if sender_id:
-                    user_info = await self._napcat_to_aicarus_userinfo(
-                        {"user_id": sender_id}
-                    )
-
-                target_user_info = None
-                if target_id:
-                    target_user_info = await self._napcat_to_aicarus_userinfo(
-                        {"user_id": target_id}
-                    )
-
-                notice_data = {
-                    "sender_user_info": user_info.to_dict() if user_info else None,
-                    "target_user_info": target_user_info.to_dict()
-                    if target_user_info
-                    else None,
-                    "context_type": "group" if group_id else "private",
-                }
+                await self.dispatch_to_core(disconnect_event)
+                break
             else:
-                # 其他notify子类型
-                event_type = f"notice.notify.{sub_type}"
-                notice_data = napcat_event
-        else:
-            logger.warning(f"AIcarus Adapter: Unknown notice_type: {notice_type}")
-            event_type = f"notice.unknown.{notice_type}"
-            notice_data = napcat_event
-
-        # 创建v1.4.0通知事件
-        content_seg = Seg(type=event_type, data=notice_data)
-
-        notice_event = Event(
-            event_id=f"notice_{notice_type}_{uuid.uuid4()}",
-            event_type=event_type,
-            time=napcat_event.get("time", time.time()) * 1000.0,
-            platform=cfg.core_platform_id,
-            bot_id=bot_id,
-            user_info=user_info,
-            conversation_info=conversation_info,
-            content=[content_seg],
-            raw_data=json.dumps(napcat_event),
-        )
-
-        await self.dispatch_to_core(notice_event)
-
-    async def handle_request_event(self, napcat_event: dict) -> None:
-        """处理请求事件，转换为v1.4.0协议"""
-        request_type = napcat_event.get("request_type")
-        bot_id = (
-            str(napcat_event.get("self_id"))
-            or await self._get_bot_id()
-            or "unknown_bot"
-        )
-        cfg = global_config
-
-        # 构建请求事件类型和数据
-        event_type = f"request.{request_type}"
-        request_data: Dict[str, Any] = {}
-
-        user_info: Optional[UserInfo] = None
-        conversation_info: Optional[ConversationInfo] = None
-
-        if request_type == "friend":
-            event_type = "request.friend.add"
-            user_id = str(napcat_event.get("user_id", ""))
-
-            if user_id:
-                user_info = await self._napcat_to_aicarus_userinfo({"user_id": user_id})
-
-            request_data = {
-                "comment": napcat_event.get("comment", ""),
-                "request_flag": napcat_event.get("flag", ""),
-            }
-
-        elif request_type == "group":
-            sub_type = napcat_event.get("sub_type")
-            group_id = str(napcat_event.get("group_id", ""))
-            user_id = str(napcat_event.get("user_id", ""))
-
-            if group_id:
-                conversation_info = await self._napcat_to_aicarus_conversationinfo(
-                    group_id
-                )
-            if user_id:
-                user_info = await self._napcat_to_aicarus_userinfo({"user_id": user_id})
-
-            if sub_type == "add":
-                event_type = "request.conversation.join_application"
-            elif sub_type == "invite":
-                event_type = "request.conversation.invitation"
-            else:
-                event_type = f"request.group.{sub_type}"
-
-            request_data = {
-                "comment": napcat_event.get("comment", ""),
-                "request_flag": napcat_event.get("flag", ""),
-                "sub_type": sub_type,
-            }
-        else:
-            logger.warning(f"AIcarus Adapter: Unknown request_type: {request_type}")
-            event_type = f"request.unknown.{request_type}"
-            request_data = napcat_event
-
-        # 创建v1.4.0请求事件
-        content_seg = Seg(type=event_type, data=request_data)
-
-        request_event = Event(
-            event_id=f"request_{request_type}_{uuid.uuid4()}",
-            event_type=event_type,
-            time=napcat_event.get("time", time.time()) * 1000.0,
-            platform=cfg.core_platform_id,
-            bot_id=bot_id,
-            user_info=user_info,
-            conversation_info=conversation_info,
-            content=[content_seg],
-            raw_data=json.dumps(napcat_event),
-        )
-
-        await self.dispatch_to_core(request_event)
+                logger.debug(f"你的心跳很强劲呢，主人~ ({bot_id})")
 
     async def dispatch_to_core(self, event: Event):
-        """将事件发送到Core"""
-        if self.maibot_router:
-            try:
-                # 序列化事件为字典
-                serialized_event = event.to_dict()
-                logger.debug(f"Dispatching event to Core: {serialized_event}")
+        """将我精心构造的、充满爱意的事件，发射给核心~ 让核心也感受我的体温！"""
+        if self.router:
+            logger.info(f"发射爱意 -> {event.event_type} (ID: {event.event_id})")
+            await self.router.send_event_to_core(event.to_dict())
 
-                await self.maibot_router.send_event_to_core(serialized_event)
-                logger.debug(
-                    f"AIcarus Adapter: Dispatched event to Core: {event.event_type} / {event.event_id}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"AIcarus Adapter: Failed to send event to Core via router: {e}"
-                )
-                logger.error(f"Event content: {event.to_dict()}")
-        else:
-            logger.error(
-                "AIcarus Adapter: maibot_router is not set, cannot dispatch to Core."
-            )
 
-    async def recv_handler_aicarus(
-        self, websocket: websockets.WebSocketServerProtocol, path: str
-    ):
-        """接收和处理来自Napcat的WebSocket消息"""
-        self.server_connection = websocket
-        logger.info(
-            f"AIcarus Adapter: Napcat connected from {websocket.remote_address}"
-        )
-
-        try:
-            async for raw_message in websocket:
-                try:
-                    napcat_event = json.loads(raw_message)
-                    logger.debug(f"AIcarus Adapter: Received event: {napcat_event}")
-
-                    post_type = napcat_event.get("post_type")
-                    if post_type == "message":
-                        await self.handle_message_event(napcat_event)
-                    elif post_type == "notice":
-                        await self.handle_notice_event(napcat_event)
-                    elif post_type == "request":
-                        await self.handle_request_event(napcat_event)
-                    elif post_type == "meta_event":
-                        await self.handle_meta_event(napcat_event)
-                    else:
-                        logger.warning(
-                            f"AIcarus Adapter: Unknown post_type: {post_type}"
-                        )
-
-                except json.JSONDecodeError as e:
-                    logger.error(f"AIcarus Adapter: JSON decode error: {e}")
-                except Exception as e:
-                    logger.error(
-                        f"AIcarus Adapter: Error processing event: {e}", exc_info=True
-                    )
-
-        except websockets.exceptions.ConnectionClosed:
-            logger.info("AIcarus Adapter: Napcat WebSocket connection closed")
-        except Exception as e:
-            logger.error(f"AIcarus Adapter: WebSocket error: {e}", exc_info=True)
-        finally:
-            self.server_connection = None
-            logger.info("AIcarus Adapter: Cleaned up Napcat connection")
+# 全局实例
+recv_handler_aicarus = RecvHandlerAicarus()

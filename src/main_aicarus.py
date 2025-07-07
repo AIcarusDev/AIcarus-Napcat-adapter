@@ -1,18 +1,18 @@
-# AIcarus Napcat Adapter - Main Entry Point for Protocol v1.4.0
-# aicarus_napcat_adapter/src/main_aicarus_v1_4_0.py
+# AIcarus Napcat Adapter - Main Entry Point for Protocol v1.5.1
+# aicarus_napcat_adapter/src/main_aicarus.py
 import asyncio
 import sys
 import json
-import time
-import uuid
 import websockets  # 确保导入
 
 # 项目内部模块
 from .logger import logger
-from .recv_handler_aicarus import RecvHandlerAicarus
+
+# 直接导入 recv_handler_aicarus 实例，而不是类
+from .recv_handler_aicarus import recv_handler_aicarus
 from .send_handler_aicarus import send_handler_aicarus
-from .config import get_config  # 使用 get_config()
-from .aic_com_layer import (  # 从新的 v1.4.0 通信层导入
+from .config import get_config  # 添加global_config
+from .aic_com_layer import (  # 从新的 v1.5.1 通信层导入
     aic_start_com,  # 这个函数现在会启动 core_connection_client.run_forever()
     aic_stop_com,  # 这个函数会调用 core_connection_client.stop_communication()
     router_aicarus as core_router,  # router_aicarus 是 core_connection_client 的实例
@@ -25,40 +25,38 @@ from .message_queue import (
     check_stale_api_responses_periodically,
 )
 
-# v1.4.0 协议库
+# v1.5.1 协议库
 from aicarus_protocols import (
-    Event,
-    UserInfo,
-    ConversationInfo,
-    Seg,
-    ConversationType,
     PROTOCOL_VERSION,
 )
 
-# 创建处理器实例
-recv_handler_aicarus = RecvHandlerAicarus()
+# recv_handler_aicarus 实例已在其模块中创建并导入，此处无需再创建
 
 
 async def napcat_message_receiver(
     server_connection: websockets.WebSocketServerProtocol,
 ):
-    """处理来自 Napcat 的连接和消息"""
+    """处理来自 Napcat 的连接和消息，已切除多余的肉体~"""
     logger.info(f"Napcat 客户端已连接: {server_connection.remote_address}")
     recv_handler_aicarus.server_connection = server_connection
     send_handler_aicarus.server_connection = server_connection
 
-    # 首次连接时，尝试获取并缓存 bot_id
-    await recv_handler_aicarus._get_bot_id()
-    logger.info(
-        f"AIcarus Adapter: Napcat Bot ID identified as: {recv_handler_aicarus.napcat_bot_id}"
-    )
+    # --- 这就是神之体位！---
+    # 把获取 Bot ID 这个猴急的任务用 create_task 扔到后台去做，
+    # 不要让它阻塞我们接收消息的主干道！
+    # 我们不再 await 它，让招待员（本函数）立刻开始工作！
+    asyncio.create_task(recv_handler_aicarus._get_bot_id())
+
+    # ------------------ 新增高潮点 1: 插入 Core ------------------
+    # 在确认QQ已连接后，我们才开始启动与Core的连接！
+    logger.info("QQ肉体已就位，现在开始插入Core的大脑...")
+    core_com_task = asyncio.create_task(aic_start_com())
+    # -----------------------------------------------------------
 
     try:
         async for raw_message_str in server_connection:
             logger.debug(
                 f"AIcarus Adapter: Raw from Napcat: {raw_message_str[:120]}..."
-                if len(raw_message_str) > 120
-                else raw_message_str
             )
             try:
                 napcat_event: dict = json.loads(raw_message_str)
@@ -70,66 +68,19 @@ async def napcat_message_receiver(
 
             post_type = napcat_event.get("post_type")
 
+            # --- 这就是修改后的逻辑 ---
+            # 我们只关心这几种类型的事件，直接把它们丢给事件处理器队列
             if post_type in ["meta_event", "message", "notice", "request"]:
-                await internal_event_queue.put(napcat_event)  # 将事件放入内部队列
+                await internal_event_queue.put(napcat_event)
+            # 我们也关心 Napcat API 的响应
             elif napcat_event.get("echo"):
-                await put_napcat_api_response(napcat_event)  # 处理 Napcat API 响应
-            elif post_type == "message_sent":
-                logger.debug(
-                    f"AIcarus Adapter: Processing message_sent event: {napcat_event}"
-                )
-
-                # 提取必要信息
-                bot_id = str(napcat_event.get("self_id"))
-                group_id = str(napcat_event.get("group_id"))
-                user_id = str(napcat_event.get("user_id"))
-
-                # 构造 v1.4.0 事件
-                conversation_info = None
-                if group_id:
-                    conversation_info = ConversationInfo(
-                        conversation_id=group_id,
-                        type=ConversationType.GROUP,
-                        platform="napcat_qq",
-                        name="",  # 可以后续获取
-                    )
-
-                user_info = UserInfo(
-                    platform="napcat_qq",
-                    user_id=user_id,
-                    user_nickname="",  # 可以后续获取
-                    user_cardname="",
-                )
-
-                # 构造事件内容 - 修复 SegBuilder 使用
-                content_segs = [
-                    Seg(
-                        type="message_sent",
-                        data={
-                            "sent_message_id": str(napcat_event.get("message_id", "")),
-                            "raw_message": napcat_event.get("raw_message"),
-                            "message_content": napcat_event.get("message"),
-                        },
-                    )
-                ]
-
-                # 构造完整事件并发送到 Core
-                message_sent_event = Event(
-                    event_id=f"message_sent_{uuid.uuid4()}",
-                    event_type="notice.message.sent",
-                    time=napcat_event.get("time", time.time()) * 1000.0,
-                    platform="napcat_qq",
-                    bot_id=bot_id,
-                    user_info=user_info,
-                    conversation_info=conversation_info,
-                    content=content_segs,
-                    raw_data=json.dumps(napcat_event),
-                )
-                await recv_handler_aicarus.dispatch_to_core(message_sent_event)
+                await put_napcat_api_response(napcat_event)
+            # 对于其他所有类型的 post_type (包括 message_sent)，我们直接忽略，让它们随风而去~
             else:
-                logger.warning(
-                    f"AIcarus Adapter: Unknown Napcat data structure: {napcat_event}"
+                logger.debug(
+                    f"AIcarus Adapter: Ignoring Napcat event with post_type '{post_type}'."
                 )
+
     except websockets.exceptions.ConnectionClosedOK:
         logger.info(
             f"Napcat client {server_connection.remote_address} disconnected gracefully."
@@ -145,41 +96,37 @@ async def napcat_message_receiver(
         )
     finally:
         logger.info(f"Napcat 客户端连接已结束: {server_connection.remote_address}")
-        # 可以在这里进行一些清理，例如将 server_connection 实例置 None (如果 recv_handler 等处有检查)
         if recv_handler_aicarus.server_connection == server_connection:
             recv_handler_aicarus.server_connection = None
         if send_handler_aicarus.server_connection == server_connection:
             send_handler_aicarus.server_connection = None
 
+        # ------------------ 新增高潮点 2: 拔出 Core ------------------
+        # 当QQ连接断开，我们也要优雅地从Core中拔出！
+        logger.info("QQ肉体已离开，正在从Core的大脑中拔出...")
+        await aic_stop_com()
+        if core_com_task and not core_com_task.done():
+            core_com_task.cancel()  # 确保任务被取消
+        logger.info("已完全从Core中拔出，保持贞洁。")
+        # -----------------------------------------------------------
+
 
 async def napcat_event_processor():
-    """从内部队列中取出 Napcat 事件并分发给相应的 AIcarus v1.4.0 协议处理器"""
-    logger.info("Napcat 事件处理器已启动，等待处理事件... (Protocol v1.4.0)")
+    """从内部队列中取出 Napcat 事件并分发给 RecvHandlerAicarus 的统一入口"""
+    logger.info("Napcat 事件处理器已启动，等待处理事件... (工厂模式)")
     while True:
-        napcat_event = await internal_event_queue.get()  # 从内部队列获取事件
-        post_type = napcat_event.get("post_type")
-
-        logger.debug(f"正在处理 Napcat 事件 (post_type: {post_type}) - v1.4.0")
+        napcat_event = await internal_event_queue.get()
         try:
-            if post_type == "meta_event":
-                await recv_handler_aicarus.handle_meta_event(napcat_event)
-            elif post_type == "message":
-                await recv_handler_aicarus.handle_message_event(napcat_event)
-            elif post_type == "notice":
-                await recv_handler_aicarus.handle_notice_event(napcat_event)
-            elif post_type == "request":
-                await recv_handler_aicarus.handle_request_event(napcat_event)
-            else:
-                logger.warning(
-                    f"AIcarus Adapter: Unknown post_type '{post_type}' in Napcat event."
-                )
+            # 无需再判断 post_type，直接丢给“老鸨”处理，好爽~
+            await recv_handler_aicarus.process_event(napcat_event)
         except Exception as e:
+            post_type = napcat_event.get("post_type", "unknown")
             logger.error(
                 f"AIcarus Adapter: Error processing Napcat event (post_type: {post_type}): {e}",
                 exc_info=True,
             )
         finally:
-            internal_event_queue.task_done()  # 标记任务完成
+            internal_event_queue.task_done()
 
 
 async def start_napcat_websocket_server(config):
@@ -213,17 +160,13 @@ async def main():
     logger.info(f"配置: Napcat 连接端口 {config.adapter_server_port}")
     logger.info(f"配置: Core 连接 URL {config.core_connection_url}")
 
-    # 将 recv_handler 的 maibot_router 设置为 core_router，使其能够向 Core 发送消息
-    recv_handler_aicarus.maibot_router = core_router
+    # 将 recv_handler 的 router 设置为 core_router，使其能够向 Core 发送消息
+    recv_handler_aicarus.router = core_router
     logger.info("已将 recv_handler 的 Core 路由器配置完成。")
 
     # 注册 send_handler 的回调到 Core 通信层，使其能够接收来自 Core 的动作指令
     core_router.register_core_event_handler(send_handler_aicarus.handle_aicarus_action)
     logger.info("已注册 send_handler 为 Core 事件处理回调。")
-
-    # 启动与 Core 的通信（异步任务）
-    logger.info("启动与 AIcarus Core 的通信...")
-    await aic_start_com()
 
     # 启动 Napcat 事件处理器（异步任务）
     logger.info("启动 Napcat 事件处理器...")

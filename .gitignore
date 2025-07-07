@@ -174,3 +174,4 @@ cython_debug/
 .pypirc
 config.toml
 logs/
+config_backups/

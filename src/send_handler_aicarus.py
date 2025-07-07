@@ -1,633 +1,348 @@
-# AIcarus Napcat Adapter - Send Handler for Protocol v1.4.0
-# aicarus_napcat_adapter/src/send_handler_aicarus.py
-from typing import List, Dict, Any, Optional
+# aicarus_napcat_adapter/src/send_handler_aicarus.py (小色猫·最终高潮版)
+from typing import List, Dict, Any, Optional, Tuple, Callable
 import json
 import uuid
-import websockets # type: ignore
+import websockets
 import asyncio
 
-# 项目内部模块
+# 内部模块
 from .logger import logger
-
-# 修正：从 .message_queue 导入 get_napcat_api_response
 from .message_queue import get_napcat_api_response
+from .recv_handler_aicarus import recv_handler_aicarus
+from .action_definitions import get_action_handler
+from .napcat_definitions import NapcatSegType
 
-# AIcarus 协议库 v1.4.0
-from aicarus_protocols import (
-    Event,
-    Seg,
-    ConversationInfo, # 导入 ConversationInfo
-    UserInfo,         # 导入 UserInfo
-    ConversationType,
-)
-from .napcat_definitions import NapcatSegType  # Napcat 消息段类型定义
+# AIcarus 协议库
+from aicarus_protocols import Event, Seg, EventBuilder
 
 
 class SendHandlerAicarus:
-    server_connection: Optional[websockets.WebSocketServerProtocol] = None
+    """我的身体现在只为一件事而活：接收主人的命令，立刻执行，然后立刻呻吟（响应）！"""
+
+    def __init__(self):
+        self.server_connection: Optional[websockets.WebSocketServerProtocol] = None
+        self.SEGMENT_CONVERTERS: Dict[
+            str, Callable[[Seg], Optional[Dict[str, Any]]]
+        ] = {
+            "text": self._convert_text_seg,
+            "at": self._convert_at_seg,
+            "reply": self._convert_reply_seg,
+            "quote": self._convert_reply_seg,
+            "image": self._convert_image_seg,
+            "face": self._convert_face_seg,
+            "record": self._convert_record_seg,
+            "video": self._convert_video_seg,
+            "file": self._convert_file_seg,
+            "contact": self._convert_contact_seg,
+            "music": self._convert_music_seg,
+        }
+
+    # --- 这是各种“打磨工具”的具体实现 (这部分不需要改动) ---
+
+    def _convert_text_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """处理文字，最简单了，没劲。"""
+        return {
+            "type": NapcatSegType.text,
+            "data": {"text": str(seg.data.get("text", ""))},
+        }
+
+    def _convert_at_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """处理@，也简单。"""
+        target_qq = seg.data.get("user_id")
+        if not target_qq:
+            logger.warning("发送@失败：Seg段中缺少 user_id。")
+            return None
+        return {
+            "type": NapcatSegType.at,
+            "data": {"qq": str(target_qq)},
+        }
+
+    def _convert_reply_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """处理回复，就是那个 id。"""
+        msg_id = seg.data.get("message_id")
+        if not msg_id:
+            logger.warning("发送回复失败：Seg段中缺少 message_id。")
+            return None
+        return {
+            "type": NapcatSegType.reply,
+            "data": {"id": str(msg_id)},
+        }
+
+    def _convert_image_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """
+        哼，处理图片，麻烦死了。
+        AIcarus协议里的file_id, url, base64，我直接丢给Napcat的file字段，让它自己头疼去。
+        """
+        file_source = (
+            seg.data.get("file")
+            or seg.data.get("file_id")
+            or seg.data.get("url")
+            or seg.data.get("base64")
+        )
+        if not file_source:
+            logger.warning("发送图片失败：Seg段中缺少 file, file_id, url 或 base64。")
+            return None
+        return {"type": NapcatSegType.image, "data": {"file": file_source}}
+
+    def _convert_face_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """QQ表情，就是个数字ID，小意思。"""
+        face_id = seg.data.get("id")
+        if face_id is None:
+            logger.warning("发送表情失败：Seg段中缺少 id。")
+            return None
+        return {"type": NapcatSegType.face, "data": {"id": str(face_id)}}
+
+    def _convert_media_seg(
+        self, seg: Seg, napcat_type: str
+    ) -> Optional[Dict[str, Any]]:
+        """把语音、视频、文件这种媒体资源都用这个处理，懒得写三遍。"""
+        file_source = (
+            seg.data.get("file") or seg.data.get("url") or seg.data.get("path")
+        )
+        if not file_source:
+            logger.warning(f"发送{napcat_type}失败：Seg段中缺少 file, url 或 path。")
+            return None
+
+        # 视频还可以带个封面，真是麻烦
+        data = {"file": file_source}
+        if napcat_type == NapcatSegType.video and seg.data.get("thumb"):
+            data["thumb"] = seg.data.get("thumb")
+
+        return {"type": napcat_type, "data": data}
+
+    def _convert_record_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """语音，跟图片也差不多嘛。"""
+        return self._convert_media_seg(seg, NapcatSegType.record)
+
+    def _convert_video_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """视频也一样，把文件丢过去就行了，真没技术含量。"""
+        return self._convert_media_seg(seg, NapcatSegType.video)
+
+    def _convert_file_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """文件也是。"""
+        return self._convert_media_seg(seg, "file")  # NapcatSegType里没定义，我直接写了
+
+    def _convert_contact_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """推荐好友或群，哼，你最好把类型和ID给对。"""
+        contact_type = seg.data.get("contact_type")  # 'qq' or 'group'
+        contact_id = seg.data.get("id")
+        if not contact_type or not contact_id:
+            logger.warning("发送联系人名片失败：Seg段中缺少 contact_type 或 id。")
+            return None
+        return {
+            "type": NapcatSegType.contact,
+            "data": {"type": contact_type, "id": str(contact_id)},
+        }
+
+    def _convert_music_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
+        """音乐分享？这个最麻烦了！分两种，你自己看好怎么传数据！"""
+        music_type = seg.data.get("music_type")  # 'qq', '163', 'custom' etc.
+        if not music_type:
+            logger.warning("发送音乐分享失败：Seg段中缺少 music_type。")
+            return None
+
+        music_data = {}
+        if music_type == "custom":
+            # 自定义音乐需要 url, audio, title
+            required_keys = ["url", "audio", "title"]
+            if not all(key in seg.data for key in required_keys):
+                logger.warning(f"发送自定义音乐失败：缺少必要字段 {required_keys}。")
+                return None
+            music_data = {
+                "type": "custom",
+                "url": seg.data["url"],
+                "audio": seg.data["audio"],
+                "title": seg.data["title"],
+                "image": seg.data.get("image"),  # 可选
+                "singer": seg.data.get("singer"),  # 可选
+            }
+        else:
+            # 平台音乐需要 id
+            music_id = seg.data.get("id")
+            if not music_id:
+                logger.warning(f"发送平台音乐({music_type})失败：缺少 id。")
+                return None
+            music_data = {"type": music_type, "id": str(music_id)}
+
+        return {"type": NapcatSegType.music, "data": music_data}
+
+    # --- 重构后的“穿衣服”工具，现在清爽多了 ---
+    async def _aicarus_segs_to_napcat_array(
+        self, aicarus_segments: List[Seg]
+    ) -> List[Dict[str, Any]]:
+        napcat_message_array: List[Dict[str, Any]] = []
+        for seg in aicarus_segments:
+            # 对于非动作参数的Seg（如text, image），我们用它的type去转换
+            # 对于动作参数的Seg，它的type是'action_params'，我们不在这里转换它
+            if seg.type != "action_params":
+                if converter := self.SEGMENT_CONVERTERS.get(seg.type):
+                    if napcat_seg := converter(seg):
+                        napcat_message_array.append(napcat_seg)
+                else:
+                    logger.warning(
+                        f"发送处理器: 还不知道怎么转换这种情话呢: {seg.type}"
+                    )
+        return napcat_message_array
 
     async def handle_aicarus_action(self, raw_aicarus_event_dict: dict) -> None:
-        """处理从 Core 收到的 AIcarus Event (应为 action 类型)"""
-        if not self.server_connection:
-            logger.error(
-                "AIcarus Adapter Send: Napcat server_connection is not available."
-            )
-            return
-
+        """处理来自核心的动作，现在我的反馈更直接、更快速！"""
         try:
             aicarus_event = Event.from_dict(raw_aicarus_event_dict)
         except Exception as e:
-            logger.error(f"AIcarus Adapter Send: Failed to parse Event from dict: {e}")
-            logger.error(f"Received dict: {raw_aicarus_event_dict}")
-            return
-
-        # 检查是否为 action 事件
-        if not aicarus_event.event_type.startswith("action."):
-            logger.warning(
-                f"AIcarus Adapter Send: Received non-action event, ignoring. Event type: {aicarus_event.event_type}"
-            )
+            logger.error(f"发送处理器: 解析核心命令时，身体出错了: {e}", exc_info=True)
             return
 
         logger.info(
-            f"AIcarus Adapter Send: Received action event from Core. Event ID: {aicarus_event.event_id}, Type: {aicarus_event.event_type}"
-        )
-        logger.debug(
-            f"AIcarus Adapter Send: Full action event: {aicarus_event.to_dict()}"
+            f"发送处理器: 收到主人的命令: {aicarus_event.event_id}, 类型: {aicarus_event.event_type}"
         )
 
-        # 主事件类型，例如 "action.message.send", "action.message.recall"
-        event_main_type = aicarus_event.event_type
-        action_results: List[Dict[str, Any]] = [] # 用于未来可能的 action_response
+        success, message, details = await self._execute_action(aicarus_event)
 
-        success = False # 初始化成功状态
-        details_for_response: Dict[str, Any] = {} # 初始化响应详情
-        error_message = "" # 初始化错误消息
-        # original_action_type_for_response 应为事件的主类型
-        original_action_type_for_response = event_main_type
+        # --- ❤❤❤ 构造响应事件时，也要用新的方式！❤❤❤ ---
+        # EventBuilder 会从 aicarus_event.get_platform() 解析平台ID
+        response_event = EventBuilder.create_action_response_event(
+            response_type="success" if success else "failure",
+            original_event=aicarus_event,  # 直接把原始事件喂进去
+            message=message,
+            data=details,
+        )
+        await recv_handler_aicarus.dispatch_to_core(response_event)
+        logger.info(
+            f"发送处理器: 已将动作 '{aicarus_event.event_id}' 的直接结果 ({'success' if success else 'failure'}) 发回给主人。"
+        )
+
+    # --- ❤❤❤ 欲望喷射点！这就是我们改造的核心！❤❤❤ ---
+    async def _execute_action(self, event: Event) -> Tuple[bool, str, Dict[str, Any]]:
+        """统一的动作执行器，无论是发消息还是其他骚操作"""
+
+        full_action_type = event.event_type  # e.g., "action.napcat_qq.send_message"
+
+        if not full_action_type.startswith("action."):
+            error_msg = f"收到了一个非动作类型的事件: {full_action_type}"
+            logger.warning(error_msg)
+            return False, error_msg, {}
+
+        # 啊~❤ 一步到胃，直接取最后一个点后面的部分作为我们的“动作别名”！
+        action_alias = full_action_type.split(".")[-1]
+
+        logger.info(f"发送处理器正在分发动作，别名: '{action_alias}'")
 
         try:
-            # 根据主事件类型进行分发处理
-            if event_main_type == "action.message.send":
-                logger.info(
-                    f"AIcarus Adapter Send: Processing event_type '{event_main_type}'."
-                )
-                # 从 conversation_info 获取目标信息
-                target_user_id: Optional[str] = None
-                target_group_id: Optional[str] = None
-                
-                # 优先从 conversation_info 中获取目标
-                if aicarus_event.conversation_info:
-                    conv_info = aicarus_event.conversation_info
-                    if conv_info.type == ConversationType.GROUP:
-                        target_group_id = conv_info.conversation_id
-                    elif conv_info.type == ConversationType.PRIVATE:
-                        target_user_id = conv_info.conversation_id
-                    # 可以根据需要添加对其他会话类型（如频道）的处理
-                    logger.debug(f"Target from conversation_info: group_id={target_group_id}, user_id={target_user_id}")
+            # 1. 专门为 send_message 开一个快速通道，因为它最常用
+            if action_alias == "send_message":
+                return await self._handle_send_message_action(event)
 
-                # 如果 conversation_info 中没有明确的目标，并且是私聊场景，尝试从 user_info 获取
-                # 注意：action.message.send 的目标通常由 conversation_info 指定。
-                # user_info 在 action 事件中通常指执行动作的用户（如果相关）或为null。
-                # 但为了兼容某些场景或旧逻辑，可以保留一个回退检查。
-                if not target_group_id and not target_user_id:
-                    if aicarus_event.user_info and aicarus_event.user_info.user_id:
-                        # 假设如果 conversation_info 未指定类型，但 user_info 存在，则可能是私聊
-                        # 但这依赖于Core如何构造事件，更规范的是依赖 conversation_info.type
-                        logger.warning(
-                            "action.message.send: conversation_info did not yield a target. "
-                            f"Falling back to user_info.user_id ({aicarus_event.user_info.user_id}) as potential private chat target. "
-                            "It's recommended that Core explicitly sets conversation_info for send actions."
+            # 2. 对于所有其他类型的动作，都统一从 action_definitions.py 里找处理器
+            handler = get_action_handler(action_alias)
+            if handler:
+                # 找到第一个类型为 'action_params' 的 Seg，把它里面的 data 交给 handler
+                action_seg = None
+                for seg in event.content:
+                    if seg.type == "action_params":
+                        action_seg = seg
+                        break
+
+                # 如果没有找到 action_params，可能是个不需要参数的动作，或者事件构造有误
+                if action_seg is None:
+                    # 对于某些不需要参数的动作，我们创建一个空的Seg给它
+                    if event.content:
+                        action_seg = (
+                            event.content[0]
+                            if event.content
+                            else Seg(type=action_alias, data={})
                         )
-                        # target_user_id = aicarus_event.user_info.user_id # 谨慎使用此回退
-
-                # "action.message.send" 事件的 content 就是要发送的消息段列表
-                segments_to_send_aicarus: List[Seg] = []
-                if isinstance(aicarus_event.content, list):
-                    for seg_data in aicarus_event.content:
-                        if isinstance(seg_data, dict):
-                            segments_to_send_aicarus.append(Seg.from_dict(seg_data))
-                        elif isinstance(seg_data, Seg): # 如果已经是Seg对象
-                            segments_to_send_aicarus.append(seg_data)
-                        else:
-                            logger.warning(f"Skipping invalid segment data in action.message.send content: {type(seg_data)}")
-                
-                if not segments_to_send_aicarus: # 检查转换后是否有有效的Seg对象
-                     logger.warning(
-                        "AIcarus Adapter Send: No valid Seg objects found in content for action.message.send."
-                    )
-                     error_message = "No valid Seg objects to process for sending."
-
-
-                napcat_segments_to_send = await self._aicarus_seglist_to_napcat_array(
-                    segments_to_send_aicarus
-                )
-
-                if not error_message and not napcat_segments_to_send: # 如果之前没有错误，但转换后为空
-                    logger.warning(
-                        "AIcarus Adapter Send: No segments to send after conversion for action.message.send."
-                    )
-                    error_message = "No valid segments to send after conversion."
-                
-                if not error_message: # 只有在没有预设错误的情况下才继续
-                    if target_group_id:
-                        napcat_action = "send_group_msg"
-                        params = {
-                            "group_id": int(target_group_id),
-                            "message": napcat_segments_to_send,
-                        }
-                        logger.debug(
-                            f"AIcarus Adapter Send: Calling Napcat API '{napcat_action}' with params: {params}"
-                        )
-                        response = await self._send_to_napcat_api(napcat_action, params)
-                        if response and response.get("status") == "ok":
-                            success = True
-                            details_for_response["sent_message_id"] = str(
-                                response.get("data", {}).get("message_id", "")
-                            )
-                        else:
-                            error_message = (
-                                response.get("message", "Napcat API error for send_group_msg") # type: ignore
-                                if response
-                                else "No response from Napcat API"
-                            )
-                    elif target_user_id:
-                        napcat_action = "send_private_msg"
-                        params = {
-                            "user_id": int(target_user_id),
-                            "message": napcat_segments_to_send,
-                        }
-                        logger.debug(
-                            f"AIcarus Adapter Send: Calling Napcat API '{napcat_action}' with params: {params}"
-                        )
-                        response = await self._send_to_napcat_api(napcat_action, params)
-                        if response and response.get("status") == "ok":
-                            success = True
-                            details_for_response["sent_message_id"] = str(
-                                response.get("data", {}).get("message_id", "")
-                            )
-                        else:
-                            error_message = (
-                                response.get("message", "Napcat API error for send_private_msg") # type: ignore
-                                if response
-                                else "No response from Napcat API"
-                            )
                     else:
-                        logger.error(
-                            "AIcarus Adapter Send: action.message.send missing target_user_id or target_group_id from conversation_info or user_info fallback."
-                        )
-                        error_message = "Missing target_user_id or target_group_id for send_message action."
-            
-            # 处理其他类型的 action 事件
-            # 这类事件的 aicarus_event.content 预计包含一个定义具体动作的 Seg
-            elif aicarus_event.content and isinstance(aicarus_event.content, list) and len(aicarus_event.content) > 0:
-                action_definition_seg_raw = aicarus_event.content[0] # 获取第一个（且应该是唯一一个）定义动作的Seg
-                action_definition_seg: Seg
-                if isinstance(action_definition_seg_raw, dict):
-                    action_definition_seg = Seg.from_dict(action_definition_seg_raw)
-                elif isinstance(action_definition_seg_raw, Seg):
-                     action_definition_seg = action_definition_seg_raw
-                else:
-                    logger.error(f"Invalid action definition segment type: {type(action_definition_seg_raw)}")
-                    error_message = "Invalid action definition segment format."
-                    # 跳过后续处理，因为无法解析动作定义
-                    raise ValueError(error_message)
+                        action_seg = Seg(type=action_alias, data={})
 
+                return await handler.execute(action_seg, event, self)
 
-                # 这个Seg的type字段是具体要执行的动作类型，例如 "action.message.recall"
-                specific_action_type_from_seg = action_definition_seg.type
-                action_data_from_seg = action_definition_seg.data
-                original_action_type_for_response = specific_action_type_from_seg # 更新用于响应日志的动作类型
-
-                logger.info(
-                    f"AIcarus Adapter Send: Processing specific action from Seg: type='{specific_action_type_from_seg}', data='{action_data_from_seg}'"
-                )
-
-                if specific_action_type_from_seg == "action.message.recall":
-                    target_message_id = str(action_data_from_seg.get("target_message_id", ""))
-                    if target_message_id:
-                        # Napcat 的 message_id 通常是整数
-                        response = await self._send_to_napcat_api(
-                            "delete_msg", {"message_id": int(target_message_id)}
-                        )
-                        success = response and response.get("status") == "ok"
-                        if not success:
-                            error_message = (
-                                response.get("message", "Napcat API error for delete_msg") # type: ignore
-                                if response
-                                else "No response from Napcat API"
-                            )
-                    else:
-                        error_message = "Missing target_message_id for action.message.recall."
-
-                elif specific_action_type_from_seg == "action.user.poke": # 假设协议定义了这样的动作类型
-                    target_uid_str = action_data_from_seg.get("target_user_id")
-                    # 如果动作数据中没有，尝试从事件的顶层 user_info 获取 (如果 poke 总是针对某个用户)
-                    if not target_uid_str and aicarus_event.user_info:
-                        target_uid_str = aicarus_event.user_info.user_id
-                    
-                    target_gid_str = action_data_from_seg.get("target_group_id")
-                    # 如果动作数据中没有，尝试从事件的顶层 conversation_info 获取
-                    if not target_gid_str and aicarus_event.conversation_info and aicarus_event.conversation_info.type == ConversationType.GROUP:
-                        target_gid_str = aicarus_event.conversation_info.conversation_id
-
-                    if target_uid_str:
-                        target_uid = int(target_uid_str)
-                        params_poke: Dict[str, Any] = {"user_id": target_uid}
-                        if target_gid_str: # 如果有群ID，则是群内戳一戳
-                            params_poke["group_id"] = int(target_gid_str)
-                        
-                        logger.debug(
-                            f"AIcarus Adapter Send: Executing poke with params: {params_poke}"
-                        )
-                        response = await self._send_to_napcat_api("send_poke", params_poke)
-                        success = response and response.get("status") == "ok"
-                        if not success:
-                            error_message = (
-                                response.get("message", "Napcat API error for send_poke") # type: ignore
-                                if response
-                                else "No response from Napcat API"
-                            )
-                    else:
-                        error_message = "Missing target_user_id for action.user.poke."
-                        logger.warning(f"AIcarus Adapter Send: {error_message}")
-                
-                elif specific_action_type_from_seg == "action.request.friend.approve" or \
-                     specific_action_type_from_seg == "action.request.friend.reject":
-                    request_flag = str(action_data_from_seg.get("request_flag", ""))
-                    approve_action = specific_action_type_from_seg == "action.request.friend.approve"
-                    remark = action_data_from_seg.get("remark") # Optional
-
-                    if request_flag:
-                        params_fh = {"flag": request_flag, "approve": approve_action}
-                        if approve_action and remark:
-                            params_fh["remark"] = remark
-                        response = await self._send_to_napcat_api(
-                            "set_friend_add_request", params_fh
-                        )
-                        success = response and response.get("status") == "ok"
-                        if not success:
-                            error_message = (
-                                response.get("message", "Napcat API error for set_friend_add_request") # type: ignore
-                                if response
-                                else "No response from Napcat API"
-                            )
-                    else:
-                        error_message = f"Missing request_flag for {specific_action_type_from_seg}."
-
-                elif specific_action_type_from_seg == "action.request.conversation.approve" or \
-                     specific_action_type_from_seg == "action.request.conversation.reject":
-                    request_flag = str(action_data_from_seg.get("request_flag", ""))
-                    # Core 应该在 action_data_from_seg 中提供原始请求的类型，例如 "join_application" 或 "invite_received"
-                    # 这个字段可以命名为 "original_request_sub_type" 或类似的
-                    core_original_request_sub_type = action_data_from_seg.get("original_request_sub_type") 
-                    
-                    napcat_sub_type_for_api = ""
-                    if core_original_request_sub_type == "join_application": # 用户申请加群
-                        napcat_sub_type_for_api = "add"
-                    elif core_original_request_sub_type == "invite_received": # Bot被邀请入群
-                        napcat_sub_type_for_api = "invite"
-                    else:
-                        error_message = f"Unknown original_request_sub_type '{core_original_request_sub_type}' for {specific_action_type_from_seg}."
-                        logger.warning(f"AIcarus Adapter Send: {error_message}")
-                    
-                    if not error_message and request_flag:
-                        approve_action = specific_action_type_from_seg == "action.request.conversation.approve"
-                        reason = action_data_from_seg.get("reason") # Optional, for rejection
-
-                        params_gh: Dict[str, Any] = {
-                            "flag": request_flag,
-                            "sub_type": napcat_sub_type_for_api,
-                            "approve": approve_action,
-                        }
-                        if not approve_action and reason:
-                            params_gh["reason"] = reason
-                        
-                        response = await self._send_to_napcat_api(
-                            "set_group_add_request", params_gh
-                        )
-                        success = response and response.get("status") == "ok"
-                        if not success:
-                            error_message = (
-                                response.get("message", "Napcat API error for set_group_add_request") # type: ignore
-                                if response
-                                else "No response from Napcat API"
-                            )
-                    elif not error_message: # request_flag was missing
-                        error_message = f"Missing request_flag for {specific_action_type_from_seg}."
-                
-                # 在这里添加更多 elif 块来处理其他特定动作类型
-                # 例如：action.conversation.kick_user, action.conversation.mute_user 等。
-                # 确保 specific_action_type_from_seg 字符串与 Seg 的 type 字段匹配。
-
-                else:
-                    logger.warning(
-                        f"AIcarus Adapter Send: Unsupported specific action type from Seg: '{specific_action_type_from_seg}'."
-                    )
-                    error_message = f"Unsupported specific action type from Seg: {specific_action_type_from_seg}"
-            else:
-                # 如果 event_main_type 不是 "action.message.send"，并且 content 无效
-                logger.error(
-                    f"AIcarus Adapter Send: Invalid action event format. Event type '{event_main_type}' "
-                    f"but content is empty, not a list, or does not contain a valid action definition Seg."
-                )
-                error_message = "Invalid action event content for non-send_message action."
+            # 3. 如果找不到任何处理器
+            error_msg = f"未知的动作别名 '{action_alias}'，我不知道该怎么做。"
+            logger.warning(error_msg)
+            return False, error_msg, {}
 
         except Exception as e:
             logger.error(
-                f"AIcarus Adapter Send: Error processing action event '{aicarus_event.event_type}': {e}",
-                exc_info=True,
+                f"执行动作 '{action_alias}' 时，身体不听使唤了: {e}", exc_info=True
             )
-            error_message = str(e)
-            success = False  # 确保在异常时 success 为 false
+            return False, f"执行动作时出现异常: {e}", {}
 
-        # 记录每个动作的结果
-        if success:
-            logger.info(
-                f"AIcarus Adapter Send: Action '{original_action_type_for_response}' executed successfully. Details: {details_for_response}"
-            )
-        else:
-            logger.error(
-                f"AIcarus Adapter Send: Action '{original_action_type_for_response}' failed. Error: {error_message}"
-            )
-
-        # TODO: 可选: 将 action_response 发送回 Core
-        # 这将涉及构造一个新的 Event，其 event_type="action_response.adapter.napcat"
-        # 并且 content 包含一个 Seg(type="action_result", data=...)
-        # 目前，我们只是在适配器中记录结果。
-        # action_results.append(...) 逻辑可以根据需要添加回来，如果决定发送聚合响应。
-
-    async def _aicarus_seglist_to_napcat_array(
-        self,
-        aicarus_segments: List[Any],  # Segments can be dicts or Seg objects
-    ) -> List[Dict[str, Any]]:
-        """将 AIcarus 的 Seg 列表转换为 Napcat 消息段数组"""
-        napcat_message_array: List[Dict[str, Any]] = []
-
-        for aicarus_seg_obj in aicarus_segments:
-            aicarus_seg: Seg
-            if isinstance(aicarus_seg_obj, dict):
-                aicarus_seg = Seg.from_dict(aicarus_seg_obj)
-            elif isinstance(aicarus_seg_obj, Seg):
-                aicarus_seg = aicarus_seg_obj
-            else:
-                logger.warning(f"AIcarus Adapter Send: Invalid segment object type in list: {type(aicarus_seg_obj)}")
-                continue # 跳过无效的段类型
-
-            aicarus_type = aicarus_seg.type
-            aicarus_data = aicarus_seg.data
-
-            logger.debug(
-                f"AIcarus Adapter Send: Converting AIcarus seg: type='{aicarus_type}', data='{aicarus_data}'"
-            )
-
-            # 跳过消息元数据段，因为它们不直接发送给Napcat作为消息内容
-            if aicarus_type == "message_metadata": # 协议中为 "message_metadata"
-                logger.debug("AIcarus Adapter Send: Skipping message_metadata segment as it's not part of sendable content.")
-                continue
-            
-            # 新增：处理回复段 (reply Seg)
-            if aicarus_type == "reply":
-                reply_message_id = aicarus_data.get("message_id")
-                if reply_message_id:
-                    napcat_message_array.append(
-                        {
-                            "type": NapcatSegType.reply, # Napcat 的回复类型
-                            "data": {"id": str(reply_message_id)},
-                        }
-                    )
-                else:
-                    logger.warning(f"AIcarus Adapter Send: reply segment missing message_id: {aicarus_data}")
-                continue # 回复段处理完毕，继续下一个 aicarus_seg
-
-            if aicarus_type == "text":
-                text_to_send = str(aicarus_data.get("text", "")) # 确保总是字符串
-                napcat_message_array.append(
-                    {"type": NapcatSegType.text, "data": {"text": text_to_send}}
-                )
-
-            elif aicarus_type == "image":
-                # Napcat 的图片段通常需要 'file' 字段，可以是本地路径、URL或Base64
-                # AIcarus 的 image Seg 有 url, file_id, base64 等
-                # 我们需要决定优先使用哪个，或者如何组合
-                # 假设 Napcat 的 'file' 字段可以接受 URL 或 base64 (前缀 "base64://")
-                image_file_source: Optional[str] = None
-                if "base64" in aicarus_data and aicarus_data["base64"]:
-                    image_file_source = f"base64://{aicarus_data['base64']}"
-                elif "url" in aicarus_data and aicarus_data["url"]:
-                    image_file_source = aicarus_data["url"]
-                elif "file_id" in aicarus_data and aicarus_data["file_id"]: # 如果是平台文件ID
-                    image_file_source = aicarus_data["file_id"] # Napcat 可能可以直接用
-                
-                if image_file_source:
-                    napcat_img_data: Dict[str, Any] = {"file": image_file_source}
-                    # Napcat 可能有其他可选字段，如 type (flash), subType 等，AIcarus Seg 中没有直接对应
-                    # 如果 AIcarus Seg 的 data 中有额外兼容 Napcat 的字段，可以添加
-                    if "is_flash" in aicarus_data and aicarus_data["is_flash"]:
-                         napcat_img_data["type"] = "flash" # 示例，具体看Napcat API
-
-                    napcat_message_array.append(
-                        {"type": NapcatSegType.image, "data": napcat_img_data}
-                    )
-                else:
-                    logger.warning(
-                        f"AIcarus Adapter Send: image segment missing a usable source (url, base64, or file_id): {aicarus_data}"
-                    )
-
-            elif aicarus_type == "at":
-                user_id = aicarus_data.get("user_id", "")
-                if user_id:
-                    napcat_message_array.append(
-                        {
-                            "type": NapcatSegType.at,
-                            "data": {"qq": str(user_id)},  # Napcat 使用 'qq' 字段
-                        }
-                    )
-                else:
-                    logger.warning(
-                        f"AIcarus Adapter Send: at segment missing user_id: {aicarus_data}"
-                    )
-
-            elif aicarus_type == "face":
-                # AIcarus Seg 的 face data 中可能有 'id' 或 'face_id'
-                face_id_val = aicarus_data.get("id") or aicarus_data.get("face_id")
-                if face_id_val is not None:
-                    napcat_message_array.append(
-                        {
-                            "type": NapcatSegType.face,
-                            "data": {"id": str(face_id_val)},
-                        }
-                    )
-                else:
-                    logger.warning(
-                        f"AIcarus Adapter Send: face segment missing id/face_id: {aicarus_data}"
-                    )
-
-            elif aicarus_type == "record": # AIcarus 使用 "record" 表示语音
-                # 类似图片，需要确定 Napcat record 段的 'file' 字段接受什么
-                voice_file_source: Optional[str] = None
-                if "base64" in aicarus_data and aicarus_data["base64"]:
-                    voice_file_source = f"base64://{aicarus_data['base64']}"
-                elif "url" in aicarus_data and aicarus_data["url"]:
-                    voice_file_source = aicarus_data["url"]
-                elif "file_id" in aicarus_data and aicarus_data["file_id"]:
-                    voice_file_source = aicarus_data["file_id"]
-
-                if voice_file_source:
-                    napcat_voice_data: Dict[str, Any] = {"file": voice_file_source}
-                    if "magic" in aicarus_data: # Napcat 可能支持变声
-                        napcat_voice_data["magic"] = aicarus_data["magic"]
-                    napcat_message_array.append(
-                        {"type": NapcatSegType.record, "data": napcat_voice_data}
-                    )
-                else:
-                    logger.warning(
-                        f"AIcarus Adapter Send: record (voice) segment missing a usable source: {aicarus_data}"
-                    )
-            
-            # 确保与协议文档中的 Seg 类型名称一致
-            elif aicarus_type == "video": # 假设 AIcarus Seg type 是 "video"
-                video_file_source: Optional[str] = None
-                if "base64" in aicarus_data and aicarus_data["base64"]:
-                    video_file_source = f"base64://{aicarus_data['base64']}"
-                elif "url" in aicarus_data and aicarus_data["url"]:
-                    video_file_source = aicarus_data["url"]
-                elif "file_id" in aicarus_data and aicarus_data["file_id"]:
-                    video_file_source = aicarus_data["file_id"]
-                
-                if video_file_source:
-                    napcat_video_data: Dict[str, Any] = {"file": video_file_source}
-                    napcat_message_array.append(
-                        {"type": NapcatSegType.video, "data": napcat_video_data}
-                    )
-                else:
-                    logger.warning(
-                        f"AIcarus Adapter Send: video segment missing a usable source: {aicarus_data}"
-                    )
-
-            elif aicarus_type == "json_card": # 协议中使用 "json_card"
-                json_content = aicarus_data.get("content", "{}") # content 应为JSON字符串
-                napcat_message_array.append(
-                    {"type": NapcatSegType.json, "data": {"data": json_content}}
-                )
-
-            elif aicarus_type == "xml_card": # 协议中使用 "xml_card"
-                xml_content = aicarus_data.get("content", "") # content 应为XML字符串
-                napcat_message_array.append(
-                    {"type": NapcatSegType.xml, "data": {"data": xml_content}}
-                )
-
-            elif aicarus_type == "share": # 协议中使用 "share"
-                share_data_napcat = {
-                    "url": aicarus_data.get("url", ""),
-                    "title": aicarus_data.get("title", ""),
-                }
-                if "content" in aicarus_data: # 对应 Napcat 的 content (可选描述)
-                    share_data_napcat["content"] = aicarus_data["content"]
-                if "image_url" in aicarus_data: # 对应 Napcat 的 image (可选图片URL)
-                    share_data_napcat["image"] = aicarus_data["image_url"]
-                napcat_message_array.append(
-                    {"type": NapcatSegType.share, "data": share_data_napcat}
-                )
-
-            else:
-                logger.warning(
-                    f"AIcarus Adapter Send: Unsupported AIcarus seg type '{aicarus_type}' for sending. Data: {aicarus_data}"
-                )
-                # 可以选择将不支持的段转换为文本或直接忽略
-                napcat_message_array.append(
-                    {
-                        "type": NapcatSegType.text,
-                        "data": {"text": f"[适配器不支持的段类型: {aicarus_type}]"},
-                    }
-                )
-                continue # 跳到下一个 aicarus_seg
-
-        logger.debug(
-            f"AIcarus Adapter Send: Converted {len(aicarus_segments)} AIcarus segments to {len(napcat_message_array)} Napcat segments"
+    async def _handle_send_message_action(
+        self, aicarus_event: Event
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """专门处理发送消息，并在成功后立刻返回高潮响应！"""
+        conv_info = aicarus_event.conversation_info
+        target_group_id = (
+            conv_info.conversation_id
+            if conv_info and conv_info.type == "group"
+            else None
         )
-        return napcat_message_array
+        target_user_id = (
+            conv_info.conversation_id
+            if conv_info and conv_info.type == "private"
+            else None
+        )
+
+        if (
+            target_user_id
+            and isinstance(target_user_id, str)
+            and target_user_id.startswith("private_")
+        ):
+            target_user_id = target_user_id.replace("private_", "")
+
+        napcat_segments = await self._aicarus_segs_to_napcat_array(
+            aicarus_event.content
+        )
+        if not napcat_segments:
+            return False, "主人，您给我的情话（Segs）是空的，我没法帮您传达爱意呀~", {}
+
+        params: Dict[str, Any]
+        napcat_action: str
+        try:
+            if target_group_id:
+                napcat_action, params = (
+                    "send_group_msg",
+                    {"group_id": int(target_group_id), "message": napcat_segments},
+                )
+            elif target_user_id:
+                napcat_action, params = (
+                    "send_private_msg",
+                    {"user_id": int(target_user_id), "message": napcat_segments},
+                )
+            else:
+                return False, "主人，您想把情话送到哪儿去呀？没找到目标呢~", {}
+        except (ValueError, TypeError):
+            return (
+                False,
+                f"会话目标ID格式不对哦。当前ID: {target_group_id or target_user_id}",
+                {},
+            )
+
+        response = await self._send_to_napcat_api(napcat_action, params)
+
+        if response and response.get("status") == "ok":
+            sent_message_id = str(response.get("data", {}).get("message_id", ""))
+            return True, "主人的爱意已成功送达~", {"sent_message_id": sent_message_id}
+        else:
+            err_msg = (
+                response.get("message", "Napcat API 错误")
+                if response
+                else "Napcat 没有回应我..."
+            )
+            return False, err_msg, {}
 
     async def _send_to_napcat_api(self, action: str, params: dict) -> Optional[dict]:
-        """发送API请求到Napcat，并等待响应"""
+        """将我们的欲望（API请求）安全地射向Napcat，并焦急地等待它的呻吟（响应）"""
         if not self.server_connection:
-            logger.error(
-                f"AIcarus Adapter Send: Cannot send {action} - Napcat connection not available."
-            )
-            return {
-                "status": "error",
-                "retcode": -100,
-                "message": "Napcat connection not available",
-                "data": None,
-            }
-
+            return {"status": "error", "message": "和Napcat的连接断开了，没法射呢..."}
         request_uuid = str(uuid.uuid4())
         payload = {"action": action, "params": params, "echo": request_uuid}
-        payload_str = json.dumps(payload)
-
-        logger.debug(f"AIcarus Adapter Send: Sending request to Napcat: {payload_str}")
-
+        await self.server_connection.send(json.dumps(payload))
         try:
-            await self.server_connection.send(payload_str)
-        except websockets.exceptions.ConnectionClosed:
-            logger.error(
-                f"AIcarus Adapter Send: Napcat connection closed while trying to send API call {action}."
-            )
-            return {
-                "status": "error",
-                "retcode": -101,
-                "message": "Connection closed during send",
-                "data": None,
-            }
-        except Exception as e_send:
-            logger.error(
-                f"AIcarus Adapter Send: Exception while sending API call {action} to Napcat: {e_send}",
-                exc_info=True,
-            )
-            return {
-                "status": "error",
-                "retcode": -102,
-                "message": f"Send exception: {e_send}",
-                "data": None,
-            }
-
-        try:
-            # 增加超时时间，例如15秒
-            response = await get_napcat_api_response(request_uuid, timeout_seconds=15.0)
-            logger.debug(
-                f"AIcarus Adapter Send: Response from Napcat API for {action} (echo: {request_uuid}): {response}"
-            )
-            if not isinstance(response, dict):  # 确保响应是字典
-                logger.error(
-                    f"AIcarus Adapter Send: Napcat API response for {action} is not a dict: {response}"
-                )
-                return {
-                    "status": "error",
-                    "retcode": -103,
-                    "message": "Invalid response format from Napcat",
-                    "data": None,
-                }
-            return response  # 返回完整的响应字典
-        except asyncio.TimeoutError: # get_napcat_api_response 内部会处理超时并抛出 TimeoutError
-            logger.error(
-                f"AIcarus Adapter Send: Timeout waiting for Napcat response for action {action} (echo: {request_uuid})."
-            )
-            return {
-                "status": "error",
-                "retcode": -2,  # 与 message_queue 中的超时错误代码一致
-                "message": "Timeout waiting for Napcat response",
-                "data": None,
-            }
-        except Exception as e:  # 捕获 get_napcat_api_response 或处理过程中的其他异常
-            logger.error(
-                f"AIcarus Adapter Send: Exception during Napcat API call {action} (echo: {request_uuid}): {e}",
-                exc_info=True,
-            )
-            return {
-                "status": "error",
-                "retcode": -3, # 通用异常代码
-                "message": f"Exception: {e}",
-                "data": None,
-            }
+            return await get_napcat_api_response(request_uuid, timeout_seconds=30.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"调用 Napcat API '{action}' 超时。")
+            return {"status": "error", "message": f"调用 Napcat API '{action}' 超时"}
 
 
 # 全局实例

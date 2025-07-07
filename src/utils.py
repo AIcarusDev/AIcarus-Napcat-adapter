@@ -1,3 +1,4 @@
+# aicarus_napcat_adapter/src/utils.py
 # Adapter 项目专属的工具函数，主要用于与 Napcat API 交互
 from typing import Dict, Any, Optional, Union, List
 import asyncio
@@ -62,6 +63,7 @@ async def _call_napcat_api(
     Returns:
         Optional[Dict[str, Any]]: Napcat 返回的响应数据中的 "data" 字段，如果成功且有数据。
                                    如果API调用失败、超时或响应格式不正确，则返回 None。
+                                   如果API调用成功但没有 "data" 字段，会返回一个空字典 {}。
     """
     if not server_connection or server_connection.closed:
         logger.error(f"无法调用 Napcat API '{action}': WebSocket 连接不可用或已关闭。")
@@ -85,7 +87,12 @@ async def _call_napcat_api(
             logger.debug(
                 f"Napcat API '{action}' (echo: {request_echo_id}) 调用成功。响应: {response_data.get('data')}"
             )
-            return response_data.get("data")  # 通常我们关心 "data" 字段
+            # 即使 data 字段不存在，也返回一个空字典表示成功
+            return (
+                response_data.get("data")
+                if response_data.get("data") is not None
+                else {}
+            )
         else:
             error_msg = (
                 response_data.get("message", "未知错误")
@@ -167,6 +174,82 @@ async def napcat_get_forward_msg_content(
         logger.warning(
             f"获取合并转发消息 (id: {forward_msg_id}) 内容时，返回的 'messages' 字段格式不正确: {data.get('messages')}"
         )
+    return None
+
+
+async def napcat_get_group_list(
+    server_connection: Any,
+) -> Optional[List[Dict[str, Any]]]:
+    """获取机器人加入的群聊列表。"""
+    return await _call_napcat_api(server_connection, "get_group_list", {})
+
+
+# --- 我新加的几个 API 调用函数，哼 ---
+
+
+async def napcat_set_group_sign(
+    server_connection: Any, group_id: Union[str, int]
+) -> Optional[Dict[str, Any]]:
+    """群签到。"""
+    return await _call_napcat_api(
+        server_connection, "set_group_sign", {"group_id": int(group_id)}
+    )
+
+
+async def napcat_set_online_status(
+    server_connection: Any, status: int, ext_status: int, battery_status: int
+) -> Optional[Dict[str, Any]]:
+    """设置在线状态。"""
+    params = {
+        "status": status,
+        "ext_status": ext_status,
+        "battery_status": battery_status,
+    }
+    return await _call_napcat_api(server_connection, "set_online_status", params)
+
+
+async def napcat_set_qq_avatar(
+    server_connection: Any, file: str
+) -> Optional[Dict[str, Any]]:
+    """设置QQ头像。"""
+    return await _call_napcat_api(server_connection, "set_qq_avatar", {"file": file})
+
+
+async def napcat_get_friend_msg_history(
+    server_connection: Any,
+    user_id: Union[str, int],
+    message_seq: Optional[Union[str, int]] = None,
+    count: int = 20,
+) -> Optional[List[Dict[str, Any]]]:
+    """获取私聊历史记录。"""
+    params: Dict[str, Any] = {"user_id": int(user_id), "count": count}
+    if message_seq is not None:
+        params["message_seq"] = str(message_seq)
+
+    data = await _call_napcat_api(
+        server_connection, "get_friend_msg_history", params, timeout_seconds=30
+    )
+    if data and isinstance(data.get("messages"), list):
+        return data["messages"]
+    return None
+
+
+async def napcat_get_group_msg_history(
+    server_connection: Any,
+    group_id: Union[str, int],
+    message_seq: Optional[Union[str, int]] = None,
+    count: int = 20,
+) -> Optional[List[Dict[str, Any]]]:
+    """获取群消息历史记录。"""
+    params: Dict[str, Any] = {"group_id": int(group_id), "count": count}
+    if message_seq is not None:
+        params["message_seq"] = int(message_seq)  # gocq-api 文档说是 int64
+
+    data = await _call_napcat_api(
+        server_connection, "get_group_msg_history", params, timeout_seconds=30
+    )
+    if data and isinstance(data.get("messages"), list):
+        return data["messages"]
     return None
 
 
