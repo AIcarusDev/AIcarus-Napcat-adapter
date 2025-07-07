@@ -846,51 +846,50 @@ class GetHistoryHandler(BaseActionHandler):
         return True, "历史消息获取成功。", {"messages": converted_messages}
 
 
-class GetGroupListHandler(BaseActionHandler):
-    """哼，这个只负责拿群列表，比那个全身检查的轻快多了。"""
+class GetListHandler(BaseActionHandler):
+    """哼，一个处理器就够了，专门处理你那个 get_list 动作。"""
 
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
+        # 从塞过来的小纸条(action_seg)里，看看想看群还是看朋友
+        list_type = action_seg.data.get("list_type")
+
+        if not list_type or list_type not in ["group", "friend"]:
+            return False, f"你要我查什么列表？ '{list_type}' 是个啥？我只认识 'group' 和 'friend'。", {}
+
         if not send_handler.server_connection:
             return False, "和 Napcat 的连接断开了，查不了了...", {}
 
-        logger.info("开始获取群聊列表...")
-        group_list_data = await napcat_get_group_list(send_handler.server_connection)
+        logger.info(f"收到 get_list 请求，准备获取 '{list_type}' 列表...")
 
-        if group_list_data is not None:
-            # AIcarus 核心那边应该能看懂这种简单的字典列表。
-            logger.info(f"成功获取到 {len(group_list_data)} 个群聊。")
-            return True, "群聊列表获取成功。", {"groups": group_list_data}
-        else:
-            error_msg = "获取群聊列表失败了，Napcat 没理我。"
-            logger.warning(error_msg)
-            return False, error_msg, {}
+        try:
+            if list_type == "group":
+                # 叫工具人去拿群列表
+                list_data = await napcat_get_group_list(send_handler.server_connection)
+                if list_data is not None:
+                    logger.info(f"成功获取到 {len(list_data)} 个群聊。")
+                    # 喏，你的群列表，拿好
+                    return True, "群聊列表获取成功。", {"groups": list_data}
+                else:
+                    return False, "获取群聊列表失败了，Napcat 没理我。", {}
 
+            elif list_type == "friend":
+                # 叫工具人去拿好友列表
+                list_data = await napcat_get_friend_list(send_handler.server_connection)
+                if list_data is not None:
+                    logger.info(f"成功获取到 {len(list_data)} 个好友。")
+                    # 喏，你的好友列表，别弄丢了
+                    return True, "好友列表获取成功。", {"friends": list_data}
+                else:
+                    return False, "获取好友列表失败了，Napcat 没理我。", {}
 
-class GetFriendListHandler(BaseActionHandler):
-    """获取好友列表，真是没完没了的查询..."""
+        except Exception as e:
+            logger.error(f"执行 get_list (type: {list_type}) 时发生意外: {e}", exc_info=True)
+            return False, f"执行 get_list 时发生意外: {e}", {}
 
-    async def execute(
-        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
-    ) -> Tuple[bool, str, Dict[str, Any]]:
-        if not send_handler.server_connection:
-            return False, "和 Napcat 的连接断开了，查不了了...", {}
-
-        logger.info("开始获取好友列表...")
-        # 这里用我们刚刚在 utils.py 里加的新工具
-        friend_list_data = await napcat_get_friend_list(send_handler.server_connection)
-
-        if friend_list_data is not None:
-            # 同样，直接把原始列表丢给你，自己处理去吧！
-            logger.info(f"成功获取到 {len(friend_list_data)} 个好友。")
-            return True, "好友列表获取成功。", {"friends": friend_list_data}
-        else:
-            error_msg = (
-                "获取好友列表失败了，Napcat 没理我，或者它不支持这个老掉牙的API。"
-            )
-            logger.warning(error_msg)
-            return False, error_msg, {}
+        # 理论上走不到这里，但为了保险
+        return False, "发生了未知错误。", {}
 
 
 class ForwardSingleMessageHandler(BaseActionHandler):
@@ -979,8 +978,7 @@ ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
     "set_status": SetBotStatusHandler(),
     "set_avatar": SetBotAvatarHandler(),
     "get_history": GetHistoryHandler(),
-    "get_group_list": GetGroupListHandler(),
-    "get_friend_list": GetFriendListHandler(),
+    "get_list": GetListHandler(),
     "forward_single_message": ForwardSingleMessageHandler(),
 }
 
