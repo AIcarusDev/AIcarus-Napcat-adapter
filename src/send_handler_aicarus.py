@@ -261,9 +261,7 @@ class SendHandlerAicarus:
             return False, error_msg, {}
 
         except Exception as e:
-            logger.error(
-                f"执行动作 '{action_alias}' 时，发生异常: {e}", exc_info=True
-            )
+            logger.error(f"执行动作 '{action_alias}' 时，发生异常: {e}", exc_info=True)
             return False, f"执行动作时出现异常: {e}", {}
 
     async def _handle_send_message_action(

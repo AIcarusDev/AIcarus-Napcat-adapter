@@ -17,10 +17,9 @@ from .utils import (
     napcat_set_online_status,
     napcat_set_qq_avatar,
     napcat_get_friend_msg_history,
-    napcat_get_group_msg_history,
     napcat_forward_friend_single_msg,
     napcat_forward_group_single_msg,
-    napcat_get_group_msg_history
+    napcat_get_group_msg_history,
 )
 from .config import get_config
 from .recv_handler_aicarus import recv_handler_aicarus
@@ -853,7 +852,6 @@ class GetGroupListHandler(BaseActionHandler):
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
-
         if not send_handler.server_connection:
             return False, "和 Napcat 的连接断开了，查不了了...", {}
 
@@ -876,7 +874,6 @@ class GetFriendListHandler(BaseActionHandler):
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
-
         if not send_handler.server_connection:
             return False, "和 Napcat 的连接断开了，查不了了...", {}
 
@@ -889,7 +886,9 @@ class GetFriendListHandler(BaseActionHandler):
             logger.info(f"成功获取到 {len(friend_list_data)} 个好友。")
             return True, "好友列表获取成功。", {"friends": friend_list_data}
         else:
-            error_msg = "获取好友列表失败了，Napcat 没理我，或者它不支持这个老掉牙的API。"
+            error_msg = (
+                "获取好友列表失败了，Napcat 没理我，或者它不支持这个老掉牙的API。"
+            )
             logger.warning(error_msg)
             return False, error_msg, {}
 
@@ -900,7 +899,6 @@ class ForwardSingleMessageHandler(BaseActionHandler):
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
-
         data = action_seg.data
         message_id = data.get("message_id")
 
@@ -919,21 +917,29 @@ class ForwardSingleMessageHandler(BaseActionHandler):
         try:
             response = None
             if conv_info.type == ConversationType.PRIVATE:
-                logger.info(f"正在将消息 {message_id} 转发给好友 {conv_info.conversation_id}...")
+                logger.info(
+                    f"正在将消息 {message_id} 转发给好友 {conv_info.conversation_id}..."
+                )
                 response = await napcat_forward_friend_single_msg(
                     send_handler.server_connection,
                     conv_info.conversation_id,
-                    message_id
+                    message_id,
                 )
             elif conv_info.type == ConversationType.GROUP:
-                logger.info(f"正在将消息 {message_id} 转发到群 {conv_info.conversation_id}...")
+                logger.info(
+                    f"正在将消息 {message_id} 转发到群 {conv_info.conversation_id}..."
+                )
                 response = await napcat_forward_group_single_msg(
                     send_handler.server_connection,
                     conv_info.conversation_id,
-                    message_id
+                    message_id,
                 )
             else:
-                return False, f"不支持向 '{conv_info.type}' 类型的会话转发单条消息。", {}
+                return (
+                    False,
+                    f"不支持向 '{conv_info.type}' 类型的会话转发单条消息。",
+                    {},
+                )
 
             # Napcat 这两个 API 成功时好像不返回什么有用的东西，我们就简单判断一下
             if response is not None:
@@ -944,7 +950,11 @@ class ForwardSingleMessageHandler(BaseActionHandler):
                 return False, "转发失败：Napcat API 调用失败或无响应。", {}
 
         except (ValueError, TypeError):
-            return False, f"无效的 message_id 或会话ID: {message_id}, {conv_info.conversation_id}", {}
+            return (
+                False,
+                f"无效的 message_id 或会话ID: {message_id}, {conv_info.conversation_id}",
+                {},
+            )
         except Exception as e:
             logger.error(f"执行单条消息转发时出现异常: {e}", exc_info=True)
             return False, f"执行单条消息转发时出现异常: {e}", {}

@@ -187,7 +187,6 @@ async def napcat_get_group_list(
     return await _call_napcat_api(server_connection, "get_group_list", {})
 
 
-
 async def napcat_get_friend_list(
     server_connection: Any,
 ) -> Optional[List[Dict[str, Any]]]:
@@ -260,9 +259,7 @@ async def napcat_forward_group_single_msg(
 ) -> Optional[Dict[str, Any]]:
     """转发单条消息到群里，啧。"""
     params = {"group_id": int(group_id), "message_id": int(message_id)}
-    return await _call_napcat_api(
-        server_connection, "forward_group_single_msg", params
-    )
+    return await _call_napcat_api(server_connection, "forward_group_single_msg", params)
 
 
 async def napcat_get_group_msg_history(

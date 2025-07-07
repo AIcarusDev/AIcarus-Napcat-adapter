@@ -511,7 +511,6 @@ class MessageEventHandlerWithSelfCheck(GenericEventHandler):
                     f"已确认消息 {napcat_message_id} 是对动作 {original_action_id} 的自我上报确认。"
                 )
 
-
                 # 1. 从配置中获取我们确切的平台ID和机器人ID
                 cfg = get_config()
                 platform_id = cfg.core_platform_id

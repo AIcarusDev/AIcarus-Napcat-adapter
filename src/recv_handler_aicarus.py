@@ -45,9 +45,7 @@ class RecvHandlerAicarus:
         if handler:
             await handler.execute(napcat_event, self)
         else:
-            logger.warning(
-                f"接收处理器: 不认识的事件类型 '{post_type}'，无法处理"
-            )
+            logger.warning(f"接收处理器: 不认识的事件类型 '{post_type}'，无法处理")
 
     # 获取Bot ID的任务，确保我们有自己的身份信息
 
@@ -296,9 +294,7 @@ class RecvHandlerAicarus:
                 )
             else:
                 # 就算是未知的类型，也会特别标记出来
-                logger.warning(
-                    f"不认识的Napcat消息体: {seg_type}，数据: {seg_data}"
-                )
+                logger.warning(f"不认识的Napcat消息体: {seg_type}，数据: {seg_data}")
                 aicarus_s = Seg(
                     type="unknown",
                     data={"napcat_type": seg_type, "napcat_data": seg_data},
@@ -309,7 +305,7 @@ class RecvHandlerAicarus:
         return aicarus_segs
 
     async def check_heartbeat(self, bot_id: str) -> None:
-        """ 定期检查心跳，确保连接活跃"""
+        """定期检查心跳，确保连接活跃"""
         while True:
             await asyncio.sleep(self.interval)
             if (
@@ -340,7 +336,7 @@ class RecvHandlerAicarus:
                 logger.debug(f"心跳正常 ({bot_id})")
 
     async def dispatch_to_core(self, event: Event):
-        """ 将事件发送到核心处理器"""
+        """将事件发送到核心处理器"""
         if self.router:
             logger.info(f"发送 -> {event.event_type} (ID: {event.event_id})")
             await self.router.send_event_to_core(event.to_dict())
