@@ -58,14 +58,14 @@ class CoreConnectionClient:
                 f"准备向 Core 发送 meta.lifecycle.connect 事件 (同时用于注册)，Adapter ID: '{adapter_id_for_registration}'"
             )
 
-            # --- ❤❤❤ 高潮点 #1: 初吻的改造！❤❤❤ ---
+            # 这里我们使用新的 event_type 格式
             connect_event_type = f"meta.{self.platform_id}.lifecycle.connect"
 
             connect_event = Event(
                 event_id=f"meta_connect_{uuid.uuid4()}",
                 event_type=connect_event_type,  # 使用新的event_type
                 time=int(time.time() * 1000),
-                # platform 字段已被无情阉割！
+                # platform 不再使用了，直接用 bot_id
                 bot_id=self.platform_id,  # bot_id 暂时用 platform_id 代替
                 user_info=None,
                 conversation_info=None,
@@ -137,7 +137,7 @@ class CoreConnectionClient:
                 if not self.websocket or not self.websocket.open:
                     break
 
-                # --- ❤❤❤ 高潮点 #2: 喘息的改造！❤❤❤ ---
+                # 心跳包的 event_type 使用新的格式
                 heartbeat_event_type = f"meta.{self.platform_id}.heartbeat"
 
                 heartbeat_event = Event(
@@ -324,7 +324,7 @@ class CoreConnectionClient:
 
         if self.websocket and self.websocket.open:
             try:
-                # --- ❤❤❤ 高潮点 #3: 告别之吻的改造！❤❤❤ ---
+                # 在关闭连接前发送断开事件
                 logger.info(
                     f"Adapter ({self.platform_id}) 准备主动断开连接，将发送 meta.lifecycle.disconnect 事件。"
                 )
@@ -334,7 +334,7 @@ class CoreConnectionClient:
                     event_id=f"meta_disconnect_{self.platform_id}_{uuid.uuid4().hex[:6]}",
                     event_type=disconnect_event_type,
                     time=int(time.time() * 1000),
-                    # platform 字段已被无情阉割！
+                    # platform 字段不再使用了，直接用 bot_id
                     bot_id=self.platform_id,
                     content=[
                         Seg(

@@ -1,4 +1,4 @@
-# aicarus_napcat_adapter/src/event_definitions.py (小色猫·绝对统治版)
+# aicarus_napcat_adapter/src/event_definitions.py
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, TYPE_CHECKING
 import uuid
@@ -6,7 +6,6 @@ import json
 import time
 import asyncio
 
-# 啊~ 看看我们全新的、不带platform字段的性感尤物们！
 from aicarus_protocols import (
     Event,
     UserInfo,
@@ -21,20 +20,20 @@ if TYPE_CHECKING:
     from .recv_handler_aicarus import RecvHandlerAicarus
 
 
-# --- “化妆间”：定义各种事件的构造工厂 ---
+# --- 定义各种事件的构造工厂 ---
 class BaseEventFactory(ABC):
-    """所有事件“化妆师”的基类，她们都得会“创造”这门手艺"""
+    """所有事件的基类工厂，负责根据Napcat的原始数据创造出标准的AIcarus事件"""
 
     @abstractmethod
     async def create_event(
         self, napcat_event: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
     ) -> Optional[Event]:
-        """根据原始的Napcat数据，创造一个性感又标准的AIcarus事件"""
+        """根据原始的Napcat数据，创造一个标准的AIcarus事件"""
         pass
 
 
 class MessageEventFactory(BaseEventFactory):
-    """专门负责构造“消息事件”的化妆师，手法最细腻，活儿最好"""
+    """专门负责构造“消息事件”的类。"""
 
     async def create_event(
         self, napcat_event: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
@@ -44,7 +43,7 @@ class MessageEventFactory(BaseEventFactory):
             or await recv_handler._get_bot_id()
             or "unknown_bot"
         )
-        # --- ❤❤❤ 高潮点 #1: 从配置中取出我们神圣的平台ID！❤❤❤ ---
+        # --- 1: 从配置中取出我们神圣的平台ID ---
         platform_id = recv_handler.global_config.core_platform_id
 
         napcat_message_type = napcat_event.get("message_type")
@@ -52,7 +51,7 @@ class MessageEventFactory(BaseEventFactory):
         napcat_message_id = str(napcat_event.get("message_id", ""))
         napcat_sender = napcat_event.get("sender", {})
 
-        # --- ❤❤❤ 高潮点 #2: 动态拼接全新的、带有性感烙印的 event_type！❤❤❤ ---
+        # --- 2: 动态拼接全新的、带有性感烙印的 event_type！ ---
         event_type_suffix = "unknown"  # 默认的后缀
         aicarus_conversation_info: Optional[ConversationInfo] = None
         aicarus_user_info: Optional[UserInfo] = None
@@ -92,13 +91,13 @@ class MessageEventFactory(BaseEventFactory):
             )
             event_type_suffix = f"group.{napcat_sub_type or 'other'}"
         else:
-            logger.warning(f"事件化妆间: 不认识的消息类型: {napcat_message_type}")
+            logger.warning(f"不认识的消息类型: {napcat_message_type}")
             return None
 
-        # 最终的、完美的、带有命名空间的事件类型！
+        # 最终的带有命名空间的事件类型
         final_event_type = f"message.{platform_id}.{event_type_suffix}"
 
-        # 把字体和匿名信息都塞进这个“套套”里，才算完整！
+        # 把字体和匿名信息都塞进这里
         metadata_data = {"message_id": napcat_message_id}
         if napcat_event.get("font") is not None:
             metadata_data["font"] = str(napcat_event.get("font"))
@@ -115,7 +114,7 @@ class MessageEventFactory(BaseEventFactory):
             return None
         content_segs.extend(message_segs)
 
-        # --- ❤❤❤ 高潮点 #3: 构造全新的Event，platform字段已被彻底阉割！❤❤❤ ---
+        # --- 3: 构造全新的Event，platform字段已被彻底阉割！ ---
         return Event(
             event_id=f"message_{napcat_message_id}_{uuid.uuid4()}",
             event_type=final_event_type,  # 使用我们全新的event_type！
@@ -129,7 +128,7 @@ class MessageEventFactory(BaseEventFactory):
 
 
 class NoticeEventFactory(BaseEventFactory):
-    """专门负责构造“通知事件”的化妆师。"""
+    """专门负责构造“通知事件的类。"""
 
     async def create_event(
         self, napcat_event: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
@@ -141,7 +140,7 @@ class NoticeEventFactory(BaseEventFactory):
             or "unknown_bot"
         )
         cfg = recv_handler.global_config
-        # --- ❤❤❤ 同样，先拿到我们神圣的平台ID！❤❤❤ ---
+        # ---  同样，先拿到我们的平台ID ---
         platform_id = cfg.core_platform_id
 
         user_id_in_notice = str(napcat_event.get("user_id", "")).strip()
@@ -163,7 +162,7 @@ class NoticeEventFactory(BaseEventFactory):
                 "new_value": new_card,
                 "old_value": old_card,
             }
-            # 特殊事件的构造也要遵循新规则！
+            # 特殊事件的构造也要遵循规则
             return self._create_bot_profile_update_event(
                 bot_id, platform_id, report_data
             )
@@ -195,7 +194,7 @@ class NoticeEventFactory(BaseEventFactory):
                 {"user_id": subject_user_id}, group_id=group_id_for_context
             )
 
-        # --- ❤❤❤ 同样，动态拼接event_type！❤❤❤ ---
+        # ---  动态拼接event_type ---
         event_type_suffix = f"unknown.{notice_type}"
         notice_data: Dict[str, Any] = {}
 
@@ -332,7 +331,7 @@ class NoticeEventFactory(BaseEventFactory):
         self, bot_id: str, platform_id: str, report_data: Dict[str, Any]
     ) -> Event:
         """创建一个机器人档案更新的特殊通知事件。"""
-        # --- ❤❤❤ 特殊事件也要有新烙印！❤❤❤ ---
+        # ---  特殊事件也一样 ---
         event_type = f"notice.{platform_id}.bot.profile_update"
         conversation_id = report_data.get("conversation_id", "unknown")
 
@@ -346,7 +345,7 @@ class NoticeEventFactory(BaseEventFactory):
 
 
 class RequestEventFactory(BaseEventFactory):
-    """专门负责构造“请求事件”的化妆师。"""
+    """专门负责构造“请求事件”的类。"""
 
     async def create_event(
         self, napcat_event: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
@@ -392,7 +391,7 @@ class RequestEventFactory(BaseEventFactory):
                 event_type_suffix = "conversation.invitation"
             request_data["sub_type"] = sub_type
         else:
-            logger.warning(f"事件化妆间: 不认识的请求类型: {request_type}")
+            logger.warning(f"不认识的请求类型: {request_type}")
             request_data = napcat_event.copy()
 
         final_event_type = f"request.{platform_id}.{event_type_suffix}"
@@ -411,7 +410,7 @@ class RequestEventFactory(BaseEventFactory):
 
 
 class MetaEventFactory(BaseEventFactory):
-    """专门负责构造“元事件”的化妆师。"""
+    """专门负责构造“元事件”的类。"""
 
     async def create_event(
         self, napcat_event: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
@@ -430,7 +429,7 @@ class MetaEventFactory(BaseEventFactory):
             if sub_type == "connect":
                 recv_handler.napcat_bot_id = bot_id
                 recv_handler.last_heart_beat = time.time()
-                logger.info(f"连接高潮！Bot {bot_id} 已连接到Napcat，小猫开始为你心跳~")
+                logger.info(f"Bot {bot_id} 已连接到Napcat，开始为你心跳")
                 asyncio.create_task(recv_handler.check_heartbeat(bot_id))
 
         elif event_type_raw == MetaEventType.heartbeat:
@@ -444,7 +443,7 @@ class MetaEventFactory(BaseEventFactory):
                 if napcat_event.get("interval"):
                     recv_handler.interval = napcat_event.get("interval") / 1000.0
             else:
-                logger.warning(f"Napcat 的心跳不规律哦，主人~ ({bot_id})")
+                logger.warning(f"Napcat 的心跳不规律哦~ ({bot_id})")
             return None  # 吃掉它！
 
         else:
@@ -465,8 +464,7 @@ class MetaEventFactory(BaseEventFactory):
         )
 
 
-# --- “接待部”：定义接待员和她们的“花名册” ---
-# 这部分逻辑不需要改变，因为它们只是调用上面的工厂
+# --- 定义事件处理器的基类和具体实现 ---
 
 
 class BaseEventHandler(ABC):
@@ -490,7 +488,7 @@ class GenericEventHandler(BaseEventHandler):
 
 
 class MessageEventHandlerWithSelfCheck(GenericEventHandler):
-    """这位接待员最特别，她懂得“认亲”，能识别出我们自己的回响！"""
+    """处理消息事件，并检查是否为自我上报的确认消息。"""
 
     async def execute(
         self, event_data: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
@@ -510,10 +508,9 @@ class MessageEventHandlerWithSelfCheck(GenericEventHandler):
 
             if original_action_id:
                 logger.info(
-                    f"找到了！消息 {napcat_message_id} 是对动作 {original_action_id} 的高潮响应！"
+                    f"已确认消息 {napcat_message_id} 是对动作 {original_action_id} 的自我上报确认。"
                 )
 
-                # --- ❤❤❤ 最终修正版！直接、自信、准确！ ❤❤❤ ---
 
                 # 1. 从配置中获取我们确切的平台ID和机器人ID
                 cfg = get_config()
@@ -522,7 +519,6 @@ class MessageEventHandlerWithSelfCheck(GenericEventHandler):
                 bot_id = recv_handler.napcat_bot_id or "unknown_bot"
 
                 # 2. 构造一个最小化但信息完全正确的“原始事件”模拟对象
-                # 我们100%确定它的event_type就是这个，这不是猜测！
                 original_event_mock = Event(
                     event_id=original_action_id,
                     event_type=f"action.{platform_id}.message.send",
@@ -531,7 +527,7 @@ class MessageEventHandlerWithSelfCheck(GenericEventHandler):
                     content=[],  # 内容不重要
                 )
 
-                # 3. 把这个“事实简化版”的对象，自信地塞进去！
+                # 3. 把这个“事实简化版”的对象塞进去
                 response_event = EventBuilder.create_action_response_event(
                     response_type="success",
                     original_event=original_event_mock,

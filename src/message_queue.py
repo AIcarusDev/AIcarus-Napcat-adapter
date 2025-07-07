@@ -53,7 +53,7 @@ async def get_napcat_api_response(
     Args:
         request_echo_id (str): 发送给 Napcat API 请求时使用的 echo ID。
         timeout_seconds (float, optional): 等待响应的超时时间（秒）。
-                                           如果为 None，则使用配置文件中的心跳间隔作为大致参考。
+                                            如果为 None，则使用配置文件中的心跳间隔作为大致参考。
 
     Returns:
         Any: Napcat 返回的响应数据 (通常是字典)。

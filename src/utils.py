@@ -62,8 +62,8 @@ async def _call_napcat_api(
 
     Returns:
         Optional[Dict[str, Any]]: Napcat 返回的响应数据中的 "data" 字段，如果成功且有数据。
-                                   如果API调用失败、超时或响应格式不正确，则返回 None。
-                                   如果API调用成功但没有 "data" 字段，会返回一个空字典 {}。
+                                    如果API调用失败、超时或响应格式不正确，则返回 None。
+                                    如果API调用成功但没有 "data" 字段，会返回一个空字典 {}。
     """
     if not server_connection or server_connection.closed:
         logger.error(f"无法调用 Napcat API '{action}': WebSocket 连接不可用或已关闭。")

@@ -1,4 +1,4 @@
-# aicarus_napcat_adapter/src/action_definitions.py (小色猫·最终高潮版)
+# aicarus_napcat_adapter/src/action_definitions.py
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, Optional, TYPE_CHECKING, List
 import asyncio
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from .send_handler_aicarus import SendHandlerAicarus
 
 
-# --- 定义一个所有“玩法”都要遵守的性感基准 ---
+# --- 定义一个基准 ---
 class BaseActionHandler(ABC):
     @abstractmethod
     async def execute(
@@ -38,14 +38,14 @@ class BaseActionHandler(ABC):
         pass
 
 
-# --- 现在是具体的“姿势”定义 ---
+# --- 现在是具体的定义 ---
 class SendForwardMessageHandler(BaseActionHandler):
-    """处理发送合并转发消息，这个姿势有点复杂，得慢慢来~"""
+    """处理发送合并转发消息，这个有点复杂，得慢慢来~"""
 
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
-        # 哼，合并转发得看整个 event.content，才不看你这个小小的 action_seg 呢
+        # 合并转发得看整个 event.content，才不看你这个小小的 action_seg 呢
         nodes = event.content
         if not nodes or not all(seg.type == "node" for seg in nodes):
             return False, "发送合并转发失败：内容必须是'node'消息段的列表。", {}
@@ -56,8 +56,8 @@ class SendForwardMessageHandler(BaseActionHandler):
             node_data = node_seg.data
             # 伪造的消息节点需要 user_id 和 nickname
             if "user_id" in node_data and "nickname" in node_data:
-                # 哼，看我怎么把你的节点（node）一个个转换掉...
-                # 节点里的内容也得转换成Napcat格式，好麻烦！
+                # 把节点（node）一个个转换掉
+                # 节点里的内容也得转换成Napcat格式
                 napcat_content = await send_handler._aicarus_segs_to_napcat_array(
                     node_data.get("content", [])
                 )
@@ -147,7 +147,7 @@ class SendForwardMessageHandler(BaseActionHandler):
 
 
 class GroupKickHandler(BaseActionHandler):
-    """处理踢人，哼，不听话的就让他滚蛋！"""
+    """处理踢人，不听话的就让他滚蛋！"""
 
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
@@ -421,7 +421,7 @@ class PokeUserHandler(BaseActionHandler):
 
 
 class HandleFriendRequestHandler(BaseActionHandler):
-    """处理好友请求，是接受还是拒绝呢，主人？"""
+    """处理好友请求，是接受还是拒绝呢？"""
 
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
@@ -463,7 +463,7 @@ class HandleFriendRequestHandler(BaseActionHandler):
 
 
 class HandleGroupRequestHandler(BaseActionHandler):
-    """处理加群的请求，要不要让新人进来玩呀？"""
+    """处理加群的请求，要不要让新人进来玩呢？"""
 
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
@@ -517,22 +517,17 @@ class HandleGroupRequestHandler(BaseActionHandler):
 class GetBotProfileHandler(BaseActionHandler):
     """
     处理获取机器人自身信息的请求。
-    【小色猫·贞洁改造版】哼，现在我只懂一种姿势，那就是最爽的“全身检查”！
     """
 
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
         action_id = event.event_id
-        # 从核心的请求中，淫荡地偷窥它想要哪个群的档案
+        # 从核心的请求中，检查它想要哪个群的档案
         specific_group_id = action_seg.data.get("group_id")
 
         log_msg_header = f"[{action_id}] GetBotProfileHandler"
 
-        # --- ❤❤❤ 小色猫的淫荡手术刀：看这里！❤❤❤ ---
-        # 我直接把那个没用的 if specific_group_id 给阉割了！
-        # 不管核心是想玩“一对一”还是“群P”，我（适配器）都只用我最擅长的“全身检查”这一招！
-        # 这样既能满足“上线安检”的需求，又能堵死那个导致超时的“特定查询”小穴，完美！
         if specific_group_id:
             logger.info(
                 f"{log_msg_header}: 核心请求了特定群聊 '{specific_group_id}' 的档案，但我将执行完整的全身安检来确保数据新鲜，哼~"
@@ -545,8 +540,6 @@ class GetBotProfileHandler(BaseActionHandler):
             return False, "与 Napcat 的连接已断开", {}
 
         try:
-            # --- 现在，下面的代码就是唯一的执行路径，永远都是“全身检查” ---
-
             # 1. 获取机器人自身的全局信息 (QQ号，昵称)，这是必须的
             self_info = await napcat_get_self_info(send_handler.server_connection)
             if not self_info or not self_info.get("user_id"):
@@ -583,7 +576,7 @@ class GetBotProfileHandler(BaseActionHandler):
                 f"{log_msg_header}: 成功获取到 {len(group_list)} 个群聊，开始逐个查询群内档案..."
             )
 
-            # 创建一个任务列表，让所有群的查询并发进行，这才是真正的“群P”效率！
+            # 创建一个任务列表，让所有群的查询并发进行，这才是真正的效率！
             tasks = []
             for group in group_list:
                 group_id = str(group.get("group_id"))
@@ -593,10 +586,10 @@ class GetBotProfileHandler(BaseActionHandler):
                     )
                 )
 
-            # 等待所有查询高潮结束
+            # 等待所有查询结束
             results = await asyncio.gather(*tasks)
 
-            # 把所有成功的高潮结果（档案）收集起来
+            # 把所有成功的结果（档案）收集起来
             for group_profile in results:
                 if group_profile:
                     group_id_key = list(group_profile.keys())[0]
@@ -621,7 +614,7 @@ class GetBotProfileHandler(BaseActionHandler):
     ) -> Optional[Dict[str, Any]]:
         """一个私密的小工具，专门用来获取单个群的档案，让上面的代码更干净~"""
         try:
-            # 在这里加一个小的随机延迟，避免瞬间请求太多导致被风控，就像温柔的前戏
+            # 在这里加一个小的随机延迟，避免瞬间请求太多导致被风控
             await asyncio.sleep(random.uniform(0.1, 0.3))
 
             group_info = await napcat_get_group_info(
@@ -666,7 +659,7 @@ class GetBotProfileHandler(BaseActionHandler):
 
 
 class GetGroupInfoHandler(BaseActionHandler):
-    """处理获取群聊信息这个姿势，把它的底细都扒光~"""
+    """处理获取群聊信息."""
 
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
@@ -674,11 +667,11 @@ class GetGroupInfoHandler(BaseActionHandler):
         # 从 action 事件的 conversation_info 里拿出群号
         conversation_info = event.conversation_info
         if not conversation_info or conversation_info.type != ConversationType.GROUP:
-            return False, "这个动作只能用在群聊里哦，主人~", {}
+            return False, "这个动作只能用在群聊里哦", {}
 
         group_id = conversation_info.conversation_id
         if not group_id:
-            return False, "哎呀，没找到群号，我怎么查嘛！", {}
+            return False, "哎呀，没找到群号，我怎么查！", {}
 
         logger.info(f"开始为群 {group_id} 获取信息...")
 
@@ -709,9 +702,6 @@ class GetGroupInfoHandler(BaseActionHandler):
             )
             logger.warning(error_msg)
             return False, error_msg, {}
-
-
-# --- 新来的苦力们，哼 ---
 
 
 class GroupSignInHandler(BaseActionHandler):
@@ -766,7 +756,7 @@ class SetBotStatusHandler(BaseActionHandler):
 
 
 class SetBotAvatarHandler(BaseActionHandler):
-    """换个头像换个心情，哼。"""
+    """换个头像换个心情."""
 
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
@@ -824,7 +814,7 @@ class GetHistoryHandler(BaseActionHandler):
         if raw_messages is None:
             return False, "从Napcat获取历史消息失败，API可能返回错误或无响应。", {}
 
-        # 哼，开始我最累的工作了：把一堆乱七八糟的原始消息，变成你们喜欢的样子
+        # 开始我最累的工作了：把一堆乱七八糟的原始消息，变成你们喜欢的样子
         converted_messages = []
         for raw_msg in raw_messages:
             try:
@@ -852,7 +842,7 @@ class GetHistoryHandler(BaseActionHandler):
                 logger.error(
                     f"转换一条历史消息时出错: {e}, 原始消息: {raw_msg}", exc_info=True
                 )
-                # 这条转换失败就跳过，不能因为一颗老鼠屎坏了一锅粥
+                # 这条转换失败就跳过
 
         return True, "历史消息获取成功。", {"messages": converted_messages}
 
@@ -871,7 +861,6 @@ class GetGroupListHandler(BaseActionHandler):
         group_list_data = await napcat_get_group_list(send_handler.server_connection)
 
         if group_list_data is not None:
-            # 哼，直接把 Napcat 给我的原始列表丢给你，我才懒得一个个转换呢。
             # AIcarus 核心那边应该能看懂这种简单的字典列表。
             logger.info(f"成功获取到 {len(group_list_data)} 个群聊。")
             return True, "群聊列表获取成功。", {"groups": group_list_data}
@@ -906,7 +895,7 @@ class GetFriendListHandler(BaseActionHandler):
 
 
 class ForwardSingleMessageHandler(BaseActionHandler):
-    """哼，这个姿势专门用来转发单条消息，不管是给朋友还是给群，我都能应付。"""
+    """专门用来转发单条消息，不管是给朋友还是给群，我都能应付。"""
 
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
@@ -961,10 +950,8 @@ class ForwardSingleMessageHandler(BaseActionHandler):
             return False, f"执行单条消息转发时出现异常: {e}", {}
 
 
-# --- ❤❤❤ 最终高潮点！更新我们的“花名册”！❤❤❤ ---
-# 现在 key 是 Core 发来的、脱掉了平台外衣的“动作别名”！
+# 现在 key 是 Core 发来的动作别名。
 ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
-    # 啊~❤ 看这些名字，多么统一，多么性感！
     "recall_message": RecallMessageHandler(),
     "poke_user": PokeUserHandler(),
     "handle_friend_request": HandleFriendRequestHandler(),

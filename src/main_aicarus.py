@@ -36,20 +36,19 @@ from aicarus_protocols import (
 async def napcat_message_receiver(
     server_connection: websockets.WebSocketServerProtocol,
 ):
-    """处理来自 Napcat 的连接和消息，已切除多余的肉体~"""
+    """处理来自 Napcat 的连接和消息，并将消息分发给 RecvHandlerAicarus"""
     logger.info(f"Napcat 客户端已连接: {server_connection.remote_address}")
     recv_handler_aicarus.server_connection = server_connection
     send_handler_aicarus.server_connection = server_connection
 
-    # --- 这就是神之体位！---
-    # 把获取 Bot ID 这个猴急的任务用 create_task 扔到后台去做，
-    # 不要让它阻塞我们接收消息的主干道！
-    # 我们不再 await 它，让招待员（本函数）立刻开始工作！
+    # 把获取 Bot ID 这个任务用 create_task 扔到后台去做，
+    # 不要让它阻塞我们接收消息的主干道
+    # 我们不再 await 它，让招待员（本函数）立刻开始工作
     asyncio.create_task(recv_handler_aicarus._get_bot_id())
 
-    # ------------------ 新增高潮点 1: 插入 Core ------------------
-    # 在确认QQ已连接后，我们才开始启动与Core的连接！
-    logger.info("QQ肉体已就位，现在开始插入Core的大脑...")
+    # ------------------ 1: 接入 Core ------------------
+    # 在确认QQ已连接后，我们才开始启动与Core的连接
+    logger.info("QQ已就位，正在尝试与 Core 建立联系...")
     core_com_task = asyncio.create_task(aic_start_com())
     # -----------------------------------------------------------
 
@@ -68,7 +67,6 @@ async def napcat_message_receiver(
 
             post_type = napcat_event.get("post_type")
 
-            # --- 这就是修改后的逻辑 ---
             # 我们只关心这几种类型的事件，直接把它们丢给事件处理器队列
             if post_type in ["meta_event", "message", "notice", "request"]:
                 await internal_event_queue.put(napcat_event)
@@ -101,13 +99,13 @@ async def napcat_message_receiver(
         if send_handler_aicarus.server_connection == server_connection:
             send_handler_aicarus.server_connection = None
 
-        # ------------------ 新增高潮点 2: 拔出 Core ------------------
-        # 当QQ连接断开，我们也要优雅地从Core中拔出！
-        logger.info("QQ肉体已离开，正在从Core的大脑中拔出...")
+        # ------------------ 2: 与Core分离 ------------------
+        # 当QQ连接断开，我们也要优雅地从Core中断开
+        logger.info("QQ已离开，正在与Core断开连接...")
         await aic_stop_com()
         if core_com_task and not core_com_task.done():
             core_com_task.cancel()  # 确保任务被取消
-        logger.info("已完全从Core中拔出，保持贞洁。")
+        logger.info("已完全从Core断开连接。")
         # -----------------------------------------------------------
 
 
@@ -117,7 +115,7 @@ async def napcat_event_processor():
     while True:
         napcat_event = await internal_event_queue.get()
         try:
-            # 无需再判断 post_type，直接丢给“老鸨”处理，好爽~
+            # 无需再判断 post_type，因为我们已经在接收器中筛选了
             await recv_handler_aicarus.process_event(napcat_event)
         except Exception as e:
             post_type = napcat_event.get("post_type", "unknown")

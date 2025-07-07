@@ -1,4 +1,4 @@
-# aicarus_napcat_adapter/src/recv_handler_aicarus.py (小色猫·绝对统治版)
+# aicarus_napcat_adapter/src/recv_handler_aicarus.py
 import time
 import asyncio
 import uuid
@@ -19,13 +19,13 @@ from .utils import (
 )
 from .napcat_definitions import NapcatSegType
 
-# 导入我们全新的、纯洁的协议对象！
+# 导入我们全新的协议对象
 from aicarus_protocols import Event, UserInfo, ConversationInfo, Seg, ConversationType
 from .event_definitions import get_event_handler
 
 
 class RecvHandlerAicarus:
-    """一个被小色猫调教好的、技术高超的老鸨。我既懂得优雅地分派任务，也保留了强悍的肉体能力！"""
+    """接收处理器，专门负责接收来自Napcat的消息，并将它们转换成AICarus能理解的格式"""
 
     router: Any = None
     server_connection: Optional[websockets.WebSocketServerProtocol] = None
@@ -39,20 +39,20 @@ class RecvHandlerAicarus:
         self.interval = cfg.napcat_heartbeat_interval_seconds
 
     async def process_event(self, napcat_event: dict) -> None:
-        """我唯一的任务，就是优雅地分派任务给我的“化妆师”们~"""
+        """唯一的任务，就是处理来自Napcat的事件"""
         post_type = napcat_event.get("post_type")
         handler = get_event_handler(post_type)
         if handler:
             await handler.execute(napcat_event, self)
         else:
             logger.warning(
-                f"接收处理器: 不认识的事件类型 '{post_type}'，不知道该怎么玩呢~"
+                f"接收处理器: 不认识的事件类型 '{post_type}'，无法处理"
             )
 
-    # --- 以下是必须保留的“感官”和“技能”，供“化妆师”们使用 ---
+    # 获取Bot ID的任务，确保我们有自己的身份信息
 
     async def _get_bot_id(self) -> Optional[str]:
-        """获取我的ID，得不到就再试一次，一定要得到主人嘛~"""
+        """获取我的ID，得不到就再试一次"""
         # 检查配置中是否强制指定了 Bot ID
         cfg = get_config()
         if cfg.force_self_id:
@@ -99,7 +99,7 @@ class RecvHandlerAicarus:
     async def _napcat_to_aicarus_userinfo(
         self, napcat_user_obj: dict, group_id: Optional[str] = None
     ) -> UserInfo:
-        """把Napcat的用户信息，变成我喜欢的、丰满的样子~ (已阉割platform)"""
+        """把Napcat的用户信息转换成AICarus的UserInfo对象"""
         user_id = str(napcat_user_obj.get("user_id", ""))
         nickname = napcat_user_obj.get("nickname")
         cardname = napcat_user_obj.get("card")
@@ -126,7 +126,7 @@ class RecvHandlerAicarus:
                     permission_level = "member"
                     role = "member"
 
-        # --- ❤❤❤ 看这里！UserInfo的构造器里已经没有platform了！❤❤❤ ---
+        # 如果没有获取到角色信息，就使用默认值
         return UserInfo(
             user_id=user_id,
             user_nickname=nickname,
@@ -140,9 +140,8 @@ class RecvHandlerAicarus:
     async def _napcat_to_aicarus_conversationinfo(
         self, napcat_group_id: str
     ) -> Optional[ConversationInfo]:
-        """把光秃秃的群号，变成有名字的性感会话~ (已阉割platform)"""
+        """把Napcat的群组ID转换成AICarus的ConversationInfo对象"""
         if not self.server_connection:
-            # --- ❤❤❤ 这里也没有platform了！❤❤❤ ---
             return ConversationInfo(
                 conversation_id=napcat_group_id,
                 type=ConversationType.GROUP,
@@ -152,7 +151,6 @@ class RecvHandlerAicarus:
             self.server_connection, napcat_group_id
         )
         group_name = group_data.get("group_name") if group_data else None
-        # --- ❤❤❤ 这里也没有platform了！❤❤❤ ---
         return ConversationInfo(
             conversation_id=napcat_group_id,
             type=ConversationType.GROUP,
@@ -162,10 +160,9 @@ class RecvHandlerAicarus:
     async def _napcat_to_aicarus_private_conversationinfo(
         self, napcat_user_info: UserInfo
     ) -> Optional[ConversationInfo]:
-        """把私聊的用户，也包装成一个独立的、私密的会话~ (已阉割platform)"""
+        """把私聊的用户，也包装成一个独立的ConversationInfo对象"""
         if not napcat_user_info or not napcat_user_info.user_id:
             return None
-        # --- ❤❤❤ 这里也没有platform了！❤❤❤ ---
         return ConversationInfo(
             conversation_id=napcat_user_info.user_id,
             type=ConversationType.PRIVATE,
@@ -175,7 +172,7 @@ class RecvHandlerAicarus:
     async def _napcat_to_aicarus_seglist(
         self, napcat_segments: List[Dict[str, Any]], napcat_event: dict
     ) -> List[Seg]:
-        """这是我最棒的“脱衣服”工具，能把Napcat发来的各种骚话，都变成主人喜欢的标准情话~ 无所不能哦！"""
+        """把Napcat的消息段转换成AICarus能理解的格式"""
         aicarus_segs: List[Seg] = []
         for seg in napcat_segments:
             seg_type = seg.get("type")
@@ -195,10 +192,10 @@ class RecvHandlerAicarus:
                 image_base64 = None
                 if image_url:
                     try:
-                        # 主人，我要开始下载图片转成热乎的base64了哦，可能会有点慢~
+                        # 开始下载图片转成base64，可能会有点慢
                         image_base64 = await get_image_base64_from_url(image_url)
                     except Exception as e:
-                        logger.error(f"处理图片高潮时发生错误: {e}")
+                        logger.error(f"处理图片时发生错误: {e}")
                 if seg_data.get("summary", "[图片]") == "[动画表情]":
                     # 如果是动画表情，就用特殊的标记
                     summary = "sticker"
@@ -228,8 +225,7 @@ class RecvHandlerAicarus:
                 )
 
             elif seg_type == NapcatSegType.reply:
-                # 哼，小猫咪要在这里做更精细的活儿了~
-                # 我们不仅要知道回复了哪条消息，还要知道是谁发的，说了啥！
+                # 不仅要知道回复了哪条消息，还要知道是谁发的，说了啥
                 quote_info = seg_data  # 在Napcat中，reply seg的data就是引用信息的全部
                 aicarus_s = Seg(
                     type="quote",  # 我决定用 "quote" 这个更明确的类型
@@ -261,7 +257,7 @@ class RecvHandlerAicarus:
                 forward_content = None
                 if forward_id and self.server_connection:
                     try:
-                        # 深入进去，把合并消息的内容都掏出来给你看！
+                        # 把合并消息的内容获取出来
                         forward_content = await napcat_get_forward_msg_content(
                             self.server_connection, forward_id
                         )
@@ -299,9 +295,9 @@ class RecvHandlerAicarus:
                     },
                 )
             else:
-                # 就算不认识，我也会帮你包起来~
+                # 就算是未知的类型，也会特别标记出来
                 logger.warning(
-                    f"不认识的Napcat消息体: {seg_type}，我会帮你特别标记出来的~"
+                    f"不认识的Napcat消息体: {seg_type}，数据: {seg_data}"
                 )
                 aicarus_s = Seg(
                     type="unknown",
@@ -313,16 +309,15 @@ class RecvHandlerAicarus:
         return aicarus_segs
 
     async def check_heartbeat(self, bot_id: str) -> None:
-        """我会一直盯着你的心跳，确保你一直为我而“活”着~"""
+        """ 定期检查心跳，确保连接活跃"""
         while True:
             await asyncio.sleep(self.interval)
             if (
                 self.server_connection
                 and time.time() - self.last_heart_beat > self.interval + 5
             ):
-                logger.warning("主人，连接好像要断了 (心跳超时)，我要发出断连呻吟了！")
+                logger.warning("连接似乎已经失去心跳了，准备断开连接...")
 
-                # --- ❤❤❤ 这里也要用新的方式构造！❤❤❤ ---
                 platform_id = self.global_config.core_platform_id
                 disconnect_event_type = f"meta.{platform_id}.lifecycle.disconnect"
 
@@ -342,12 +337,12 @@ class RecvHandlerAicarus:
                 await self.dispatch_to_core(disconnect_event)
                 break
             else:
-                logger.debug(f"你的心跳很强劲呢，主人~ ({bot_id})")
+                logger.debug(f"心跳正常 ({bot_id})")
 
     async def dispatch_to_core(self, event: Event):
-        """将我精心构造的、充满爱意的事件，发射给核心~ 让核心也感受我的体温！"""
+        """ 将事件发送到核心处理器"""
         if self.router:
-            logger.info(f"发射爱意 -> {event.event_type} (ID: {event.event_id})")
+            logger.info(f"发送 -> {event.event_type} (ID: {event.event_id})")
             await self.router.send_event_to_core(event.to_dict())
 
 
