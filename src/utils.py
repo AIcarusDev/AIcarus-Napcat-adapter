@@ -180,8 +180,19 @@ async def napcat_get_forward_msg_content(
 async def napcat_get_group_list(
     server_connection: Any,
 ) -> Optional[List[Dict[str, Any]]]:
-    """获取机器人加入的群聊列表。"""
+    """
+    获取机器人加入的群聊列表。
+    返回的列表中每个元素包含群 ID、名称等信息。
+    """
     return await _call_napcat_api(server_connection, "get_group_list", {})
+
+
+
+async def napcat_get_friend_list(
+    server_connection: Any,
+) -> Optional[List[Dict[str, Any]]]:
+    """获取机器人好友列表。"""
+    return await _call_napcat_api(server_connection, "get_friend_list", {})
 
 
 # --- 我新加的几个 API 调用函数，哼 ---
@@ -232,6 +243,26 @@ async def napcat_get_friend_msg_history(
     if data and isinstance(data.get("messages"), list):
         return data["messages"]
     return None
+
+
+async def napcat_forward_friend_single_msg(
+    server_connection: Any, user_id: Union[str, int], message_id: Union[str, int]
+) -> Optional[Dict[str, Any]]:
+    """转发单条消息给好友，哼。"""
+    params = {"user_id": int(user_id), "message_id": int(message_id)}
+    return await _call_napcat_api(
+        server_connection, "forward_friend_single_msg", params
+    )
+
+
+async def napcat_forward_group_single_msg(
+    server_connection: Any, group_id: Union[str, int], message_id: Union[str, int]
+) -> Optional[Dict[str, Any]]:
+    """转发单条消息到群里，啧。"""
+    params = {"group_id": int(group_id), "message_id": int(message_id)}
+    return await _call_napcat_api(
+        server_connection, "forward_group_single_msg", params
+    )
 
 
 async def napcat_get_group_msg_history(

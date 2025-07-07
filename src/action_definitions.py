@@ -11,12 +11,16 @@ from .utils import (
     napcat_get_self_info,
     napcat_get_member_info,
     napcat_get_group_list,
+    napcat_get_friend_list,
     napcat_get_group_info,
     napcat_set_group_sign,
     napcat_set_online_status,
     napcat_set_qq_avatar,
     napcat_get_friend_msg_history,
     napcat_get_group_msg_history,
+    napcat_forward_friend_single_msg,
+    napcat_forward_group_single_msg,
+    napcat_get_group_msg_history
 )
 from .config import get_config
 from .recv_handler_aicarus import recv_handler_aicarus
@@ -853,6 +857,110 @@ class GetHistoryHandler(BaseActionHandler):
         return True, "历史消息获取成功。", {"messages": converted_messages}
 
 
+class GetGroupListHandler(BaseActionHandler):
+    """哼，这个只负责拿群列表，比那个全身检查的轻快多了。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+
+        if not send_handler.server_connection:
+            return False, "和 Napcat 的连接断开了，查不了了...", {}
+
+        logger.info("开始获取群聊列表...")
+        group_list_data = await napcat_get_group_list(send_handler.server_connection)
+
+        if group_list_data is not None:
+            # 哼，直接把 Napcat 给我的原始列表丢给你，我才懒得一个个转换呢。
+            # AIcarus 核心那边应该能看懂这种简单的字典列表。
+            logger.info(f"成功获取到 {len(group_list_data)} 个群聊。")
+            return True, "群聊列表获取成功。", {"groups": group_list_data}
+        else:
+            error_msg = "获取群聊列表失败了，Napcat 没理我。"
+            logger.warning(error_msg)
+            return False, error_msg, {}
+
+
+class GetFriendListHandler(BaseActionHandler):
+    """获取好友列表，真是没完没了的查询..."""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+
+        if not send_handler.server_connection:
+            return False, "和 Napcat 的连接断开了，查不了了...", {}
+
+        logger.info("开始获取好友列表...")
+        # 这里用我们刚刚在 utils.py 里加的新工具
+        friend_list_data = await napcat_get_friend_list(send_handler.server_connection)
+
+        if friend_list_data is not None:
+            # 同样，直接把原始列表丢给你，自己处理去吧！
+            logger.info(f"成功获取到 {len(friend_list_data)} 个好友。")
+            return True, "好友列表获取成功。", {"friends": friend_list_data}
+        else:
+            error_msg = "获取好友列表失败了，Napcat 没理我，或者它不支持这个老掉牙的API。"
+            logger.warning(error_msg)
+            return False, error_msg, {}
+
+
+class ForwardSingleMessageHandler(BaseActionHandler):
+    """哼，这个姿势专门用来转发单条消息，不管是给朋友还是给群，我都能应付。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+
+        data = action_seg.data
+        message_id = data.get("message_id")
+
+        # 目标从 conversation_info 里拿，这才是标准做法！
+        conv_info = event.conversation_info
+
+        if not message_id:
+            return False, "转发失败：你得告诉我转发哪条消息 (缺少 message_id)。", {}
+
+        if not conv_info or not conv_info.conversation_id:
+            return False, "转发失败：你得告诉我转发到哪儿去 (缺少会话信息)。", {}
+
+        if not send_handler.server_connection:
+            return False, "和 Napcat 的连接断开了，发不了。", {}
+
+        try:
+            response = None
+            if conv_info.type == ConversationType.PRIVATE:
+                logger.info(f"正在将消息 {message_id} 转发给好友 {conv_info.conversation_id}...")
+                response = await napcat_forward_friend_single_msg(
+                    send_handler.server_connection,
+                    conv_info.conversation_id,
+                    message_id
+                )
+            elif conv_info.type == ConversationType.GROUP:
+                logger.info(f"正在将消息 {message_id} 转发到群 {conv_info.conversation_id}...")
+                response = await napcat_forward_group_single_msg(
+                    send_handler.server_connection,
+                    conv_info.conversation_id,
+                    message_id
+                )
+            else:
+                return False, f"不支持向 '{conv_info.type}' 类型的会话转发单条消息。", {}
+
+            # Napcat 这两个 API 成功时好像不返回什么有用的东西，我们就简单判断一下
+            if response is not None:
+                # 这里假设调用成功API会返回一个非None的字典（即使是空的）
+                # 失败或超时在_call_napcat_api里处理过了，会返回None
+                return True, "单条消息转发指令已发送。", {}
+            else:
+                return False, "转发失败：Napcat API 调用失败或无响应。", {}
+
+        except (ValueError, TypeError):
+            return False, f"无效的 message_id 或会话ID: {message_id}, {conv_info.conversation_id}", {}
+        except Exception as e:
+            logger.error(f"执行单条消息转发时出现异常: {e}", exc_info=True)
+            return False, f"执行单条消息转发时出现异常: {e}", {}
+
+
 # --- ❤❤❤ 最终高潮点！更新我们的“花名册”！❤❤❤ ---
 # 现在 key 是 Core 发来的、脱掉了平台外衣的“动作别名”！
 ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
@@ -874,6 +982,9 @@ ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
     "set_status": SetBotStatusHandler(),
     "set_avatar": SetBotAvatarHandler(),
     "get_history": GetHistoryHandler(),
+    "get_group_list": GetGroupListHandler(),
+    "get_friend_list": GetFriendListHandler(),
+    "forward_single_message": ForwardSingleMessageHandler(),
 }
 
 
