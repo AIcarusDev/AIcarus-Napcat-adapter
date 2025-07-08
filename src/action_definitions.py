@@ -34,6 +34,8 @@ from .utils import (
     napcat_get_group_notice,
     napcat_set_msg_emoji_like,
     napcat_get_recent_contact,
+    napcat_get_ai_characters,
+    napcat_send_group_ai_record,
 )
 from .config import get_config
 from .recv_handler_aicarus import recv_handler_aicarus
@@ -1324,6 +1326,57 @@ class GetRecentContactHandler(BaseActionHandler):
         except (ValueError, TypeError):
             return False, f"无效的 count: {count}", {}
 
+class GetAiCharactersHandler(BaseActionHandler):
+    """让你看看都有哪些倒霉蛋可以模仿你说话。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+
+        if not group_id:
+            return False, "获取AI角色列表失败：缺少 group_id。", {}
+
+        try:
+            response = await napcat_get_ai_characters(
+                send_handler.server_connection, int(group_id)
+            )
+            if response is not None:
+                # API 直接返回列表，我们把它包在字典里
+                return True, "AI角色列表获取成功。", {"characters": response}
+            else:
+                return False, "获取AI角色列表失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id: {group_id}", {}
+
+
+class SendAiVoiceHandler(BaseActionHandler):
+    """使唤AI帮你发语音，哼。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        character_id = data.get("character_id")
+        text = data.get("text")
+
+        if not all([group_id, character_id, text]):
+            return False, "发送AI语音失败：缺少 group_id, character_id 或 text。", {}
+
+        try:
+            response = await napcat_send_group_ai_record(
+                send_handler.server_connection, int(group_id), str(character_id), str(text)
+            )
+            if response and response.get("message_id"):
+                return True, "AI语音发送成功。", {"sent_message_id": str(response.get("message_id"))}
+            else:
+                err_msg = response.get("message", "Napcat API 调用失败或无响应。") if response else "无响应"
+                return False, f"发送AI语音失败: {err_msg}", {}
+        except (ValueError, TypeError):
+            return False, "参数类型错误，请检查各项参数。", {}
+
 
 # 现在 key 是 Core 发来的动作别名。
 ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
@@ -1358,6 +1411,8 @@ ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
     "get_group_notice": GetGroupNoticeHandler(),
     "set_message_emoji_like": SetMsgEmojiLikeHandler(),
     "get_recent_contacts": GetRecentContactHandler(),
+    "get_ai_characters": GetAiCharactersHandler(),
+    "send_ai_voice": SendAiVoiceHandler(),
 }
 
 
