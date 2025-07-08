@@ -331,6 +331,51 @@ class NoticeEventFactory(BaseEventFactory):
                 "context_type": "group" if group_id_for_context else "private",
             }
 
+        elif (
+            notice_type == NoticeType.notify and napcat_event.get("sub_type") == "honor"
+        ):
+            event_type_suffix = "conversation.honor_change"
+            honor_type = napcat_event.get("honor_type", "unknown")
+            notice_data = {
+                "target_user_info": user_info.to_dict() if user_info else None,
+                "honor_type": honor_type,
+            }
+
+        elif (
+            notice_type == NoticeType.notify and napcat_event.get("sub_type") == "lucky_king"
+        ):
+            event_type_suffix = "conversation.lucky_king"
+            target_id = str(napcat_event.get("target_id", ""))
+            target_info = await recv_handler._napcat_to_aicarus_userinfo(
+                {"user_id": target_id}, group_id=group_id_for_context
+            )
+            notice_data = {
+                "winner_user_info": user_info.to_dict() if user_info else None, # 发起者
+                "target_user_info": target_info.to_dict() if target_info else None, # 运气王
+            }
+
+        elif notice_type == "group_msg_emoji_like": # 这个 notice_type 比较特殊
+            event_type_suffix = "message.emoji_like"
+            operator = (
+                await recv_handler._napcat_to_aicarus_userinfo(
+                    {"user_id": user_id_in_notice}, group_id=group_id_for_context
+                )
+            )
+            notice_data = {
+                "message_id": str(napcat_event.get("message_id", "")),
+                "operator_user_info": operator.to_dict() if operator else None,
+                "likes": napcat_event.get("likes", []),
+            }
+
+        elif (
+            notice_type == NoticeType.notify and napcat_event.get("sub_type") == "title"
+        ):
+            event_type_suffix = "conversation.member_title_change"
+            notice_data = {
+                "target_user_info": user_info.to_dict() if user_info else None,
+                "new_title": napcat_event.get("title", ""),
+            }
+
         else:
             logger.warning(
                 f"接收到未明确处理的通知类型: {notice_type}，将作为通用通知处理。"

@@ -393,6 +393,45 @@ async def napcat_get_group_file_url(
     params = {"group_id": int(group_id), "file_id": file_id, "busid": busid}
     return await _call_napcat_api(server_connection, "get_group_file_url", params)
 
+async def napcat_get_group_honor_info(
+    server_connection: Any, group_id: Union[str, int], honor_type: str
+) -> Optional[Dict[str, Any]]:
+    """让你看看谁是龙王，中二！"""
+    params = {"group_id": int(group_id), "type": honor_type}
+    return await _call_napcat_api(server_connection, "get_group_honor_info", params)
+
+
+async def napcat_send_group_notice(
+    server_connection: Any, group_id: Union[str, int], content: str, image: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """发公告，好麻烦。"""
+    params: Dict[str, Any] = {"group_id": int(group_id), "content": content}
+    if image:
+        params["image"] = image
+    return await _call_napcat_api(server_connection, "_send_group_notice", params)
+
+
+async def napcat_get_group_notice(
+    server_connection: Any, group_id: Union[str, int]
+) -> Optional[List[Dict[str, Any]]]:
+    """获取公告，你自己看吧。"""
+    return await _call_napcat_api(server_connection, "_get_group_notice", params={"group_id": int(group_id)})
+
+
+async def napcat_set_msg_emoji_like(
+    server_connection: Any, message_id: Union[str, int], emoji_id: str
+) -> Optional[Dict[str, Any]]:
+    """用表情给消息点赞，花里胡哨的。"""
+    params = {"message_id": int(message_id), "emoji_id": emoji_id}
+    return await _call_napcat_api(server_connection, "set_msg_emoji_like", params)
+
+
+async def napcat_get_recent_contact(
+    server_connection: Any, count: int = 20
+) -> Optional[List[Dict[str, Any]]]:
+    """获取最近联系人，你想干嘛？"""
+    return await _call_napcat_api(server_connection, "get_recent_contact", params={"count": count})
+
 
 def get_image_format_from_base64(base64_data: str) -> Optional[str]:
     """从 Base64 编码的图像数据中尝试确定图像格式。"""

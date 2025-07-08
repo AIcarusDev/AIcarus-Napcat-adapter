@@ -29,6 +29,11 @@ from .utils import (
     napcat_get_group_root_files,
     napcat_get_group_files_by_folder,
     napcat_get_group_file_url,
+    napcat_get_group_honor_info,
+    napcat_send_group_notice,
+    napcat_get_group_notice,
+    napcat_set_msg_emoji_like,
+    napcat_get_recent_contact,
 )
 from .config import get_config
 from .recv_handler_aicarus import recv_handler_aicarus
@@ -1078,6 +1083,31 @@ class UploadGroupFileHandler(BaseActionHandler):
         except (ValueError, TypeError):
             return False, "参数类型错误，请检查 group_id, file_path, file_name。", {}
 
+class CreateGroupFolderHandler(BaseActionHandler):
+    """创建群文件夹，只能在根目录，真麻烦。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        folder_name = data.get("name")
+
+        if not group_id or not folder_name:
+            return False, "创建文件夹失败：缺少 group_id 或 name。", {}
+
+        try:
+            # 确保 napcat_create_group_file_folder 已经从 utils 导入了
+            response = await napcat_create_group_file_folder(
+                send_handler.server_connection, int(group_id), str(folder_name)
+            )
+            if response is not None:
+                # 这个 API 成功时好像也不返回什么东西
+                return True, "创建群文件夹指令已发送。", {}
+            else:
+                return False, "创建群文件夹失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, "参数类型错误，请检查 group_id 或 name。", {}
 
 class DeleteGroupItemHandler(BaseActionHandler):
     """处理删除群文件或文件夹，删错了可别哭哦。"""
@@ -1144,6 +1174,123 @@ class GetGroupFileUrlHandler(BaseActionHandler):
         except (ValueError, TypeError):
             return False, "参数类型错误，请检查各项ID。", {}
 
+class GetGroupHonorInfoHandler(BaseActionHandler):
+    """获取群荣誉，满足你的中二病。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        honor_type = data.get("type", "all")  # 默认获取所有
+
+        if not group_id:
+            return False, "获取群荣誉失败：缺少 group_id。", {}
+
+        try:
+            response = await napcat_get_group_honor_info(
+                send_handler.server_connection, int(group_id), str(honor_type)
+            )
+            if response is not None:
+                return True, "群荣誉信息获取成功。", response
+            else:
+                return False, "获取群荣誉信息失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id: {group_id}", {}
+
+
+class SendGroupNoticeHandler(BaseActionHandler):
+    """发群公告，权力越大，麻烦越多。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        content = data.get("content")
+        image = data.get("image")  # 可选
+
+        if not group_id or not content:
+            return False, "发送群公告失败：缺少 group_id 或 content。", {}
+
+        try:
+            response = await napcat_send_group_notice(
+                send_handler.server_connection, int(group_id), str(content), image
+            )
+            if response is not None:
+                return True, "群公告发送指令已提交。", {}
+            else:
+                return False, "发送群公告失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id: {group_id}", {}
+
+
+class GetGroupNoticeHandler(BaseActionHandler):
+    """获取群公告，你自己慢慢看吧。"""
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+
+        if not group_id:
+            return False, "获取群公告失败：缺少 group_id。", {}
+
+        try:
+            response = await napcat_get_group_notice(send_handler.server_connection, int(group_id))
+            if response is not None:
+                return True, "群公告获取成功。", {"notices": response}
+            else:
+                return False, "获取群公告失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id: {group_id}", {}
+
+
+class SetMsgEmojiLikeHandler(BaseActionHandler):
+    """用表情给消息点赞，真会玩。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        message_id = data.get("message_id")
+        emoji_id = data.get("emoji_id")
+
+        if not message_id or not emoji_id:
+            return False, "表情表态失败：缺少 message_id 或 emoji_id。", {}
+
+        try:
+            response = await napcat_set_msg_emoji_like(
+                send_handler.server_connection, int(message_id), str(emoji_id)
+            )
+            if response is not None:
+                return True, "表情表态指令已发送。", {}
+            else:
+                return False, "表情表态失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 message_id 或 emoji_id。", {}
+
+
+class GetRecentContactHandler(BaseActionHandler):
+    """获取最近联系人，你想干嘛？不会是想查岗吧？"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        count = data.get("count", 20)
+
+        try:
+            response = await napcat_get_recent_contact(
+                send_handler.server_connection, int(count)
+            )
+            if response is not None:
+                return True, "最近联系人列表获取成功。", {"contacts": response}
+            else:
+                return False, "获取最近联系人列表失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 count: {count}", {}
+
 
 # 现在 key 是 Core 发来的动作别名。
 ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
@@ -1171,7 +1318,13 @@ ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
     "get_group_files": GetGroupFilesHandler(),
     "upload_group_file": UploadGroupFileHandler(),
     "delete_group_item": DeleteGroupItemHandler(),
+    "create_group_folder": CreateGroupFolderHandler(),
     "get_group_file_url": GetGroupFileUrlHandler(),
+    "get_group_honor_info": GetGroupHonorInfoHandler(),
+    "send_group_notice": SendGroupNoticeHandler(),
+    "get_group_notice": GetGroupNoticeHandler(),
+    "set_message_emoji_like": SetMsgEmojiLikeHandler(),
+    "get_recent_contacts": GetRecentContactHandler(),
 }
 
 
