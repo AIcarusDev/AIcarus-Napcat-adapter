@@ -443,7 +443,7 @@ class CoreConnectionClient:
             event_json = json.dumps(event_dict, ensure_ascii=False)
             simplified_desc = self._get_simplified_event_description(event_dict)
             logger.info(f"发送事件到 Core: {simplified_desc}")
-            logger.debug(f"完整事件内容: {event_json}")
+            logger.debug(f"完整事件内容: {event_json[:500]}...")  # 限制日志长度，避免过长
             await self.websocket.send(event_json)
             logger.debug("成功发送事件给 Core")
             return True

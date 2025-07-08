@@ -303,9 +303,9 @@ class RecvHandlerAicarus:
                 aicarus_s = Seg(
                     type="contact",
                     data={
-                        "contact_type": seg_data.get("type"), # 'qq' or 'group'
-                        "id": str(seg_data.get("id"))
-                    }
+                        "contact_type": seg_data.get("type"),  # 'qq' or 'group'
+                        "id": str(seg_data.get("id")),
+                    },
                 )
 
             elif seg_type == NapcatSegType.file:

@@ -870,7 +870,11 @@ class GetListHandler(BaseActionHandler):
         list_type = action_seg.data.get("list_type")
 
         if not list_type or list_type not in ["group", "friend"]:
-            return False, f"你要我查什么列表？ '{list_type}' 是个啥？我只认识 'group' 和 'friend'。", {}
+            return (
+                False,
+                f"你要我查什么列表？ '{list_type}' 是个啥？我只认识 'group' 和 'friend'。",
+                {},
+            )
 
         if not send_handler.server_connection:
             return False, "和 Napcat 的连接断开了，查不了了...", {}
@@ -899,7 +903,9 @@ class GetListHandler(BaseActionHandler):
                     return False, "获取好友列表失败了，Napcat 没理我。", {}
 
         except Exception as e:
-            logger.error(f"执行 get_list (type: {list_type}) 时发生意外: {e}", exc_info=True)
+            logger.error(
+                f"执行 get_list (type: {list_type}) 时发生意外: {e}", exc_info=True
+            )
             return False, f"执行 get_list 时发生意外: {e}", {}
 
         # 理论上走不到这里，但为了保险
@@ -1025,6 +1031,7 @@ class SetGroupNameHandler(BaseActionHandler):
         except (ValueError, TypeError):
             return False, f"无效的 group_id: {group_id}", {}
 
+
 class GetGroupFilesHandler(BaseActionHandler):
     """处理获取群文件列表，让我看看你都藏了什么好东西。"""
 
@@ -1074,7 +1081,11 @@ class UploadGroupFileHandler(BaseActionHandler):
 
         try:
             response = await napcat_upload_group_file(
-                send_handler.server_connection, int(group_id), str(file_path), str(file_name), str(folder_id) if folder_id else None
+                send_handler.server_connection,
+                int(group_id),
+                str(file_path),
+                str(file_name),
+                str(folder_id) if folder_id else None,
             )
             if response is not None:
                 return True, "上传群文件指令已发送（请注意这可能是异步的）。", {}
@@ -1082,6 +1093,7 @@ class UploadGroupFileHandler(BaseActionHandler):
                 return False, "上传群文件失败：Napcat API 调用失败或无响应。", {}
         except (ValueError, TypeError):
             return False, "参数类型错误，请检查 group_id, file_path, file_name。", {}
+
 
 class CreateGroupFolderHandler(BaseActionHandler):
     """创建群文件夹，只能在根目录，真麻烦。"""
@@ -1109,6 +1121,7 @@ class CreateGroupFolderHandler(BaseActionHandler):
         except (ValueError, TypeError):
             return False, "参数类型错误，请检查 group_id 或 name。", {}
 
+
 class DeleteGroupItemHandler(BaseActionHandler):
     """处理删除群文件或文件夹，删错了可别哭哦。"""
 
@@ -1124,15 +1137,18 @@ class DeleteGroupItemHandler(BaseActionHandler):
 
         try:
             response = None
-            if item_type == 'file':
+            if item_type == "file":
                 file_id = data.get("file_id")
                 busid = data.get("busid")
                 if not file_id or busid is None:
                     return False, "删除文件失败：缺少 file_id 或 busid。", {}
                 response = await napcat_delete_group_file(
-                    send_handler.server_connection, int(group_id), str(file_id), int(busid)
+                    send_handler.server_connection,
+                    int(group_id),
+                    str(file_id),
+                    int(busid),
                 )
-            elif item_type == 'folder':
+            elif item_type == "folder":
                 folder_id = data.get("folder_id")
                 if not folder_id:
                     return False, "删除文件夹失败：缺少 folder_id。", {}
@@ -1140,18 +1156,27 @@ class DeleteGroupItemHandler(BaseActionHandler):
                     send_handler.server_connection, int(group_id), str(folder_id)
                 )
             else:
-                return False, f"未知的 item_type: '{item_type}'，我只认识 'file' 和 'folder'。", {}
+                return (
+                    False,
+                    f"未知的 item_type: '{item_type}'，我只认识 'file' 和 'folder'。",
+                    {},
+                )
 
             if response is not None:
                 return True, f"删除 {item_type} 指令已发送。", {}
             else:
-                return False, f"删除 {item_type} 失败：Napcat API 调用失败或无响应。", {}
+                return (
+                    False,
+                    f"删除 {item_type} 失败：Napcat API 调用失败或无响应。",
+                    {},
+                )
         except (ValueError, TypeError):
             return False, "参数类型错误，请检查各项ID。", {}
 
 
 class GetGroupFileUrlHandler(BaseActionHandler):
     """处理获取群文件链接，拿去下载吧。"""
+
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
@@ -1173,6 +1198,7 @@ class GetGroupFileUrlHandler(BaseActionHandler):
                 return False, "获取文件链接失败：Napcat API 调用失败或未返回URL。", {}
         except (ValueError, TypeError):
             return False, "参数类型错误，请检查各项ID。", {}
+
 
 class GetGroupHonorInfoHandler(BaseActionHandler):
     """获取群荣誉，满足你的中二病。"""
@@ -1227,6 +1253,7 @@ class SendGroupNoticeHandler(BaseActionHandler):
 
 class GetGroupNoticeHandler(BaseActionHandler):
     """获取群公告，你自己慢慢看吧。"""
+
     async def execute(
         self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
     ) -> Tuple[bool, str, Dict[str, Any]]:
@@ -1237,7 +1264,9 @@ class GetGroupNoticeHandler(BaseActionHandler):
             return False, "获取群公告失败：缺少 group_id。", {}
 
         try:
-            response = await napcat_get_group_notice(send_handler.server_connection, int(group_id))
+            response = await napcat_get_group_notice(
+                send_handler.server_connection, int(group_id)
+            )
             if response is not None:
                 return True, "群公告获取成功。", {"notices": response}
             else:
@@ -1268,7 +1297,7 @@ class SetMsgEmojiLikeHandler(BaseActionHandler):
             else:
                 return False, "表情表态失败：Napcat API 调用失败或无响应。", {}
         except (ValueError, TypeError):
-            return False, f"无效的 message_id 或 emoji_id。", {}
+            return False, "无效的 message_id 或 emoji_id。", {}
 
 
 class GetRecentContactHandler(BaseActionHandler):
@@ -1287,7 +1316,11 @@ class GetRecentContactHandler(BaseActionHandler):
             if response is not None:
                 return True, "最近联系人列表获取成功。", {"contacts": response}
             else:
-                return False, "获取最近联系人列表失败：Napcat API 调用失败或无响应。", {}
+                return (
+                    False,
+                    "获取最近联系人列表失败：Napcat API 调用失败或无响应。",
+                    {},
+                )
         except (ValueError, TypeError):
             return False, f"无效的 count: {count}", {}
 

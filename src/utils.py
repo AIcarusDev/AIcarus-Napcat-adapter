@@ -282,7 +282,10 @@ async def napcat_get_group_msg_history(
 
 
 async def napcat_set_group_admin(
-    server_connection: Any, group_id: Union[str, int], user_id: Union[str, int], enable: bool = True
+    server_connection: Any,
+    group_id: Union[str, int],
+    user_id: Union[str, int],
+    enable: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """设置或取消群管理员。"""
     params = {"group_id": int(group_id), "user_id": int(user_id), "enable": enable}
@@ -343,7 +346,9 @@ async def napcat_upload_group_file(
     if folder_id:
         params["folder"] = folder_id
     # 上传文件可能很慢，超时时间给长一点
-    return await _call_napcat_api(server_connection, "upload_group_file", params, timeout_seconds=300)
+    return await _call_napcat_api(
+        server_connection, "upload_group_file", params, timeout_seconds=300
+    )
 
 
 async def napcat_delete_group_file(
@@ -375,7 +380,9 @@ async def napcat_get_group_files_by_folder(
 ) -> Optional[Dict[str, Any]]:
     """获取指定文件夹下的文件列表。"""
     params = {"group_id": int(group_id), "folder_id": folder_id}
-    return await _call_napcat_api(server_connection, "get_group_files_by_folder", params)
+    return await _call_napcat_api(
+        server_connection, "get_group_files_by_folder", params
+    )
 
 
 async def napcat_get_group_root_files(
@@ -393,6 +400,7 @@ async def napcat_get_group_file_url(
     params = {"group_id": int(group_id), "file_id": file_id, "busid": busid}
     return await _call_napcat_api(server_connection, "get_group_file_url", params)
 
+
 async def napcat_get_group_honor_info(
     server_connection: Any, group_id: Union[str, int], honor_type: str
 ) -> Optional[Dict[str, Any]]:
@@ -402,7 +410,10 @@ async def napcat_get_group_honor_info(
 
 
 async def napcat_send_group_notice(
-    server_connection: Any, group_id: Union[str, int], content: str, image: Optional[str] = None
+    server_connection: Any,
+    group_id: Union[str, int],
+    content: str,
+    image: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """发公告，好麻烦。"""
     params: Dict[str, Any] = {"group_id": int(group_id), "content": content}
@@ -415,7 +426,9 @@ async def napcat_get_group_notice(
     server_connection: Any, group_id: Union[str, int]
 ) -> Optional[List[Dict[str, Any]]]:
     """获取公告，你自己看吧。"""
-    return await _call_napcat_api(server_connection, "_get_group_notice", params={"group_id": int(group_id)})
+    return await _call_napcat_api(
+        server_connection, "_get_group_notice", params={"group_id": int(group_id)}
+    )
 
 
 async def napcat_set_msg_emoji_like(
@@ -430,7 +443,9 @@ async def napcat_get_recent_contact(
     server_connection: Any, count: int = 20
 ) -> Optional[List[Dict[str, Any]]]:
     """获取最近联系人，你想干嘛？"""
-    return await _call_napcat_api(server_connection, "get_recent_contact", params={"count": count})
+    return await _call_napcat_api(
+        server_connection, "get_recent_contact", params={"count": count}
+    )
 
 
 def get_image_format_from_base64(base64_data: str) -> Optional[str]:

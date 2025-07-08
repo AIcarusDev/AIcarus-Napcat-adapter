@@ -304,7 +304,9 @@ class NoticeEventFactory(BaseEventFactory):
                 else None
             )
             notice_data = {
-                "action_type": "add" if napcat_event.get("sub_type") == "add" else "delete",
+                "action_type": "add"
+                if napcat_event.get("sub_type") == "add"
+                else "delete",
                 "message_id": str(napcat_event.get("message_id", "")),
                 "operator_user_info": operator.to_dict() if operator else None,
                 "message_sender_info": sender_info.to_dict() if sender_info else None,
@@ -342,7 +344,8 @@ class NoticeEventFactory(BaseEventFactory):
             }
 
         elif (
-            notice_type == NoticeType.notify and napcat_event.get("sub_type") == "lucky_king"
+            notice_type == NoticeType.notify
+            and napcat_event.get("sub_type") == "lucky_king"
         ):
             event_type_suffix = "conversation.lucky_king"
             target_id = str(napcat_event.get("target_id", ""))
@@ -350,16 +353,18 @@ class NoticeEventFactory(BaseEventFactory):
                 {"user_id": target_id}, group_id=group_id_for_context
             )
             notice_data = {
-                "winner_user_info": user_info.to_dict() if user_info else None, # 发起者
-                "target_user_info": target_info.to_dict() if target_info else None, # 运气王
+                "winner_user_info": user_info.to_dict()
+                if user_info
+                else None,  # 发起者
+                "target_user_info": target_info.to_dict()
+                if target_info
+                else None,  # 运气王
             }
 
-        elif notice_type == "group_msg_emoji_like": # 这个 notice_type 比较特殊
+        elif notice_type == "group_msg_emoji_like":  # 这个 notice_type 比较特殊
             event_type_suffix = "message.emoji_like"
-            operator = (
-                await recv_handler._napcat_to_aicarus_userinfo(
-                    {"user_id": user_id_in_notice}, group_id=group_id_for_context
-                )
+            operator = await recv_handler._napcat_to_aicarus_userinfo(
+                {"user_id": user_id_in_notice}, group_id=group_id_for_context
             )
             notice_data = {
                 "message_id": str(napcat_event.get("message_id", "")),

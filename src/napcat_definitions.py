@@ -82,7 +82,7 @@ class NapcatSegType:
     json = "json"  # JSON 消息
     cardimage = "cardimage"  # 未在你的代码中看到，但某些 gocq 版本有
     tts = "tts"  # 文本转语音
-    file = "file" # 文件类型也加上
+    file = "file"  # 文件类型也加上
 
 
 # AIcarus 协议版本 - v1.5.1
