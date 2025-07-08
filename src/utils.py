@@ -433,6 +433,27 @@ async def napcat_get_recent_contact(
     return await _call_napcat_api(server_connection, "get_recent_contact", params={"count": count})
 
 
+async def napcat_get_ai_characters(
+    server_connection: Any, group_id: Union[str, int]
+) -> Optional[List[Dict[str, Any]]]:
+    """获取AI声优列表，让你挑个够。"""
+    params = {"group_id": int(group_id)}
+    # 根据文档，这个API的响应直接就是列表，所以我们直接返回
+    return await _call_napcat_api(server_connection, "get_ai_characters", params)
+
+
+async def napcat_send_group_ai_record(
+    server_connection: Any, group_id: Union[str, int], character_id: str, text: str
+) -> Optional[Dict[str, Any]]:
+    """让AI替你说话，懒死你算了。"""
+    params = {
+        "group_id": int(group_id),
+        "character": character_id,
+        "text": text,
+    }
+    return await _call_napcat_api(server_connection, "send_group_ai_record", params)
+
+
 def get_image_format_from_base64(base64_data: str) -> Optional[str]:
     """从 Base64 编码的图像数据中尝试确定图像格式。"""
     try:
