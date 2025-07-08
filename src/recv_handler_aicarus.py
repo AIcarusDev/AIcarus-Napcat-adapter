@@ -292,6 +292,30 @@ class RecvHandlerAicarus:
                         "image_url": seg_data.get("image", ""),
                     },
                 )
+
+            elif seg_type == NapcatSegType.music:
+                # 哼，收到音乐分享，直接把数据丢过去就行了，简单。
+                # 你的核心那边自己看 seg_data 里面的 'type' 是 'qq' 还是 'custom'
+                aicarus_s = Seg(type="music", data=seg_data)
+
+            elif seg_type == NapcatSegType.contact:
+                # 推荐联系人也一样，我帮你把字段名对齐一下
+                aicarus_s = Seg(
+                    type="contact",
+                    data={
+                        "contact_type": seg_data.get("type"), # 'qq' or 'group'
+                        "id": str(seg_data.get("id"))
+                    }
+                )
+
+            elif seg_type == NapcatSegType.file:
+                # 文件也一样，把 Napcat 给的所有信息都塞给你，你自己看着办吧。
+                aicarus_s = Seg(type="file", data=seg_data)
+
+            elif seg_type == NapcatSegType.location:
+                # 位置信息，什么经纬度、标题，都给你。
+                aicarus_s = Seg(type="location", data=seg_data)
+
             else:
                 # 就算是未知的类型，也会特别标记出来
                 logger.warning(f"不认识的Napcat消息体: {seg_type}，数据: {seg_data}")
