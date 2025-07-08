@@ -281,6 +281,22 @@ async def napcat_get_group_msg_history(
     return None
 
 
+async def napcat_set_group_admin(
+    server_connection: Any, group_id: Union[str, int], user_id: Union[str, int], enable: bool = True
+) -> Optional[Dict[str, Any]]:
+    """设置或取消群管理员。"""
+    params = {"group_id": int(group_id), "user_id": int(user_id), "enable": enable}
+    return await _call_napcat_api(server_connection, "set_group_admin", params)
+
+
+async def napcat_set_group_name(
+    server_connection: Any, group_id: Union[str, int], group_name: str
+) -> Optional[Dict[str, Any]]:
+    """设置群名，想改啥就改啥。"""
+    params = {"group_id": int(group_id), "group_name": group_name}
+    return await _call_napcat_api(server_connection, "set_group_name", params)
+
+
 # --- 图片处理工具函数 ---
 
 
@@ -309,6 +325,73 @@ async def get_image_base64_from_url(url: str, timeout: int = 10) -> Optional[str
     except Exception as e:
         logger.error(f"下载或处理图片时发生错误 (URL: {url}): {e}", exc_info=True)
         return None
+
+
+async def napcat_upload_group_file(
+    server_connection: Any,
+    group_id: Union[str, int],
+    file_path: str,
+    file_name: str,
+    folder_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """上传群文件，哼，别传太大的东西，我懒得等。"""
+    params = {
+        "group_id": int(group_id),
+        "file": file_path,
+        "name": file_name,
+    }
+    if folder_id:
+        params["folder"] = folder_id
+    # 上传文件可能很慢，超时时间给长一点
+    return await _call_napcat_api(server_connection, "upload_group_file", params, timeout_seconds=300)
+
+
+async def napcat_delete_group_file(
+    server_connection: Any, group_id: Union[str, int], file_id: str, busid: int
+) -> Optional[Dict[str, Any]]:
+    """删除群文件，拜拜了您内！"""
+    params = {"group_id": int(group_id), "file_id": file_id, "busid": busid}
+    return await _call_napcat_api(server_connection, "delete_group_file", params)
+
+
+async def napcat_delete_group_folder(
+    server_connection: Any, group_id: Union[str, int], folder_id: str
+) -> Optional[Dict[str, Any]]:
+    """删除群文件夹，整个文件夹都消失吧！"""
+    params = {"group_id": int(group_id), "folder_id": folder_id}
+    return await _call_napcat_api(server_connection, "delete_group_folder", params)
+
+
+async def napcat_create_group_file_folder(
+    server_connection: Any, group_id: Union[str, int], folder_name: str
+) -> Optional[Dict[str, Any]]:
+    """创建群文件夹，只能在根目录创建，真是死板。"""
+    params = {"group_id": int(group_id), "name": folder_name, "parent_id": "/"}
+    return await _call_napcat_api(server_connection, "create_group_file_folder", params)
+
+
+async def napcat_get_group_files_by_folder(
+    server_connection: Any, group_id: Union[str, int], folder_id: str
+) -> Optional[Dict[str, Any]]:
+    """获取指定文件夹下的文件列表。"""
+    params = {"group_id": int(group_id), "folder_id": folder_id}
+    return await _call_napcat_api(server_connection, "get_group_files_by_folder", params)
+
+
+async def napcat_get_group_root_files(
+    server_connection: Any, group_id: Union[str, int]
+) -> Optional[Dict[str, Any]]:
+    """获取群根目录的文件列表。"""
+    params = {"group_id": int(group_id)}
+    return await _call_napcat_api(server_connection, "get_group_root_files", params)
+
+
+async def napcat_get_group_file_url(
+    server_connection: Any, group_id: Union[str, int], file_id: str, busid: int
+) -> Optional[Dict[str, Any]]:
+    """获取群文件的下载链接。"""
+    params = {"group_id": int(group_id), "file_id": file_id, "busid": busid}
+    return await _call_napcat_api(server_connection, "get_group_file_url", params)
 
 
 def get_image_format_from_base64(base64_data: str) -> Optional[str]:

@@ -20,6 +20,15 @@ from .utils import (
     napcat_forward_friend_single_msg,
     napcat_forward_group_single_msg,
     napcat_get_group_msg_history,
+    napcat_set_group_admin,
+    napcat_set_group_name,
+    napcat_upload_group_file,
+    napcat_delete_group_file,
+    napcat_delete_group_folder,
+    napcat_create_group_file_folder,
+    napcat_get_group_root_files,
+    napcat_get_group_files_by_folder,
+    napcat_get_group_file_url,
 )
 from .config import get_config
 from .recv_handler_aicarus import recv_handler_aicarus
@@ -959,6 +968,183 @@ class ForwardSingleMessageHandler(BaseActionHandler):
             return False, f"执行单条消息转发时出现异常: {e}", {}
 
 
+class SetGroupAdminHandler(BaseActionHandler):
+    """处理设置管理员，感觉自己权力好大哦~"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        user_id = data.get("user_id")
+        enable = data.get("enable", True)  # 默认是设置管理员
+
+        if not group_id or not user_id:
+            return False, "设置管理员失败：缺少 group_id 或 user_id。", {}
+
+        try:
+            response = await napcat_set_group_admin(
+                send_handler.server_connection, int(group_id), int(user_id), enable
+            )
+            # 这个API成功时通常不返回data，所以我们只检查调用是否成功 (返回非None)
+            if response is not None:
+                action_text = "设置" if enable else "取消"
+                return True, f"{action_text}管理员指令已发送。", {}
+            else:
+                return False, "设置管理员失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id 或 user_id: {group_id}, {user_id}", {}
+
+
+class SetGroupNameHandler(BaseActionHandler):
+    """处理改群名，今天我们叫什么好呢？叫‘小懒猫后援会’怎么样？"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        new_name = data.get("new_name")
+
+        if not group_id or not new_name:
+            return False, "修改群名失败：缺少 group_id 或 new_name。", {}
+
+        try:
+            response = await napcat_set_group_name(
+                send_handler.server_connection, int(group_id), str(new_name)
+            )
+            if response is not None:
+                return True, "修改群名指令已发送。", {}
+            else:
+                return False, "修改群名失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id: {group_id}", {}
+
+class GetGroupFilesHandler(BaseActionHandler):
+    """处理获取群文件列表，让我看看你都藏了什么好东西。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        folder_id = data.get("folder_id")  # 可选，不传就是根目录
+
+        if not group_id:
+            return False, "获取文件列表失败：缺少 group_id。", {}
+
+        try:
+            if folder_id:
+                response = await napcat_get_group_files_by_folder(
+                    send_handler.server_connection, int(group_id), str(folder_id)
+                )
+            else:
+                response = await napcat_get_group_root_files(
+                    send_handler.server_connection, int(group_id)
+                )
+
+            if response is not None:
+                # Napcat 返回的数据包含 'files' 和 'folders' 两个列表
+                return True, "群文件列表获取成功。", response
+            else:
+                return False, "获取群文件列表失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, f"无效的 group_id 或 folder_id: {group_id}, {folder_id}", {}
+
+
+class UploadGroupFileHandler(BaseActionHandler):
+    """处理上传群文件，这可得花点时间。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        file_path = data.get("file_path")
+        file_name = data.get("file_name")
+        folder_id = data.get("folder_id")  # 可选
+
+        if not all([group_id, file_path, file_name]):
+            return False, "上传文件失败：缺少 group_id, file_path 或 file_name。", {}
+
+        try:
+            response = await napcat_upload_group_file(
+                send_handler.server_connection, int(group_id), str(file_path), str(file_name), str(folder_id) if folder_id else None
+            )
+            if response is not None:
+                return True, "上传群文件指令已发送（请注意这可能是异步的）。", {}
+            else:
+                return False, "上传群文件失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, "参数类型错误，请检查 group_id, file_path, file_name。", {}
+
+
+class DeleteGroupItemHandler(BaseActionHandler):
+    """处理删除群文件或文件夹，删错了可别哭哦。"""
+
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        item_type = data.get("item_type")  # 'file' or 'folder'
+
+        if not group_id or not item_type:
+            return False, "删除失败：缺少 group_id 或 item_type。", {}
+
+        try:
+            response = None
+            if item_type == 'file':
+                file_id = data.get("file_id")
+                busid = data.get("busid")
+                if not file_id or busid is None:
+                    return False, "删除文件失败：缺少 file_id 或 busid。", {}
+                response = await napcat_delete_group_file(
+                    send_handler.server_connection, int(group_id), str(file_id), int(busid)
+                )
+            elif item_type == 'folder':
+                folder_id = data.get("folder_id")
+                if not folder_id:
+                    return False, "删除文件夹失败：缺少 folder_id。", {}
+                response = await napcat_delete_group_folder(
+                    send_handler.server_connection, int(group_id), str(folder_id)
+                )
+            else:
+                return False, f"未知的 item_type: '{item_type}'，我只认识 'file' 和 'folder'。", {}
+
+            if response is not None:
+                return True, f"删除 {item_type} 指令已发送。", {}
+            else:
+                return False, f"删除 {item_type} 失败：Napcat API 调用失败或无响应。", {}
+        except (ValueError, TypeError):
+            return False, "参数类型错误，请检查各项ID。", {}
+
+
+class GetGroupFileUrlHandler(BaseActionHandler):
+    """处理获取群文件链接，拿去下载吧。"""
+    async def execute(
+        self, action_seg: Seg, event: Event, send_handler: "SendHandlerAicarus"
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        data = action_seg.data
+        group_id = data.get("group_id")
+        file_id = data.get("file_id")
+        busid = data.get("busid")
+
+        if not all([group_id, file_id, busid is not None]):
+            return False, "获取链接失败：缺少 group_id, file_id 或 busid。", {}
+
+        try:
+            response = await napcat_get_group_file_url(
+                send_handler.server_connection, int(group_id), str(file_id), int(busid)
+            )
+            if response and response.get("url"):
+                return True, "获取文件链接成功。", {"url": response.get("url")}
+            else:
+                return False, "获取文件链接失败：Napcat API 调用失败或未返回URL。", {}
+        except (ValueError, TypeError):
+            return False, "参数类型错误，请检查各项ID。", {}
+
+
 # 现在 key 是 Core 发来的动作别名。
 ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
     "recall_message": RecallMessageHandler(),
@@ -980,6 +1166,12 @@ ACTION_HANDLERS: Dict[str, BaseActionHandler] = {
     "get_history": GetHistoryHandler(),
     "get_list": GetListHandler(),
     "forward_single_message": ForwardSingleMessageHandler(),
+    "set_admin": SetGroupAdminHandler(),
+    "set_conversation_name": SetGroupNameHandler(),
+    "get_group_files": GetGroupFilesHandler(),
+    "upload_group_file": UploadGroupFileHandler(),
+    "delete_group_item": DeleteGroupItemHandler(),
+    "get_group_file_url": GetGroupFileUrlHandler(),
 }
 
 

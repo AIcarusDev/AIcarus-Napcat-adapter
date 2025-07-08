@@ -285,6 +285,31 @@ class NoticeEventFactory(BaseEventFactory):
                 ),
             }
 
+        elif notice_type == NoticeType.essence:
+            event_type_suffix = "conversation.essence_message_change"
+            operator = (
+                await recv_handler._napcat_to_aicarus_userinfo(
+                    {"user_id": operator_id}, group_id=group_id_for_context
+                )
+                if operator_id
+                else None
+            )
+            # 精华消息的发送者信息，从 napcat_event 的 sender_id 获取
+            sender_id = str(napcat_event.get("sender_id", "")).strip()
+            sender_info = (
+                await recv_handler._napcat_to_aicarus_userinfo(
+                    {"user_id": sender_id}, group_id=group_id_for_context
+                )
+                if sender_id
+                else None
+            )
+            notice_data = {
+                "action_type": "add" if napcat_event.get("sub_type") == "add" else "delete",
+                "message_id": str(napcat_event.get("message_id", "")),
+                "operator_user_info": operator.to_dict() if operator else None,
+                "message_sender_info": sender_info.to_dict() if sender_info else None,
+            }
+
         elif (
             notice_type == NoticeType.notify and napcat_event.get("sub_type") == "poke"
         ):
