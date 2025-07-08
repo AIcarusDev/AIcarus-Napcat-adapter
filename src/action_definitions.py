@@ -1326,6 +1326,7 @@ class GetRecentContactHandler(BaseActionHandler):
         except (ValueError, TypeError):
             return False, f"无效的 count: {count}", {}
 
+
 class GetAiCharactersHandler(BaseActionHandler):
     """让你看看都有哪些倒霉蛋可以模仿你说话。"""
 
@@ -1367,12 +1368,23 @@ class SendAiVoiceHandler(BaseActionHandler):
 
         try:
             response = await napcat_send_group_ai_record(
-                send_handler.server_connection, int(group_id), str(character_id), str(text)
+                send_handler.server_connection,
+                int(group_id),
+                str(character_id),
+                str(text),
             )
             if response and response.get("message_id"):
-                return True, "AI语音发送成功。", {"sent_message_id": str(response.get("message_id"))}
+                return (
+                    True,
+                    "AI语音发送成功。",
+                    {"sent_message_id": str(response.get("message_id"))},
+                )
             else:
-                err_msg = response.get("message", "Napcat API 调用失败或无响应。") if response else "无响应"
+                err_msg = (
+                    response.get("message", "Napcat API 调用失败或无响应。")
+                    if response
+                    else "无响应"
+                )
                 return False, f"发送AI语音失败: {err_msg}", {}
         except (ValueError, TypeError):
             return False, "参数类型错误，请检查各项参数。", {}
