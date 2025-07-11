@@ -354,6 +354,8 @@ class RecvHandlerAicarus:
         if self.router:
             logger.info(f"发送 -> {event.event_type} (ID: {event.event_id})")
             await self.router.send_event_to_core(event.to_dict())
+        else:
+            logger.error("接收处理器没有配置路由器，无法发送事件到核心。请检查初始化。")
 
 
 # 全局实例
