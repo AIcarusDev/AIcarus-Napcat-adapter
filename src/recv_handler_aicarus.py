@@ -107,9 +107,9 @@ class RecvHandlerAicarus:
 
         if group_id and user_id and self.server_connection:
             member_data = await napcat_get_member_info(
-                server_connection=self.server_connection, 
-                group_id=group_id, 
-                user_id=user_id
+                server_connection=self.server_connection,
+                group_id=group_id,
+                user_id=user_id,
             )
 
             if member_data:
@@ -147,7 +147,9 @@ class RecvHandlerAicarus:
                 type=ConversationType.GROUP,
             )
 
-        group_data = await napcat_get_group_info(server_connection=self.server_connection, group_id=napcat_group_id)
+        group_data = await napcat_get_group_info(
+            server_connection=self.server_connection, group_id=napcat_group_id
+        )
         group_name = group_data.get("group_name") if group_data else None
         return ConversationInfo(
             conversation_id=napcat_group_id,

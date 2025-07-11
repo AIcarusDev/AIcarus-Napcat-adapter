@@ -2,6 +2,7 @@
 from typing import List, Dict, Any, Optional, Tuple, Callable
 import json
 import uuid
+import asyncio
 import websockets
 
 # 内部模块
@@ -241,13 +242,16 @@ class SendHandlerAicarus:
 
             #  如果 params 里没有 group_id 或 user_id，就尝试从 event 的上下文中补全。
             if event.conversation_info:
-                if 'group_id' not in params and event.conversation_info.type == 'group':
-                    params['group_id'] = event.conversation_info.conversation_id
-                if 'user_id' not in params and event.conversation_info.type == 'private':
-                    params['user_id'] = event.conversation_info.conversation_id
-            if event.user_info and 'user_id' not in params:
-                 # 对于某些操作，比如 get_member_info，如果没指定目标，可能就是查自己
-                 pass # 暂时不补全，避免歧义，但可以留个口子
+                if "group_id" not in params and event.conversation_info.type == "group":
+                    params["group_id"] = event.conversation_info.conversation_id
+                if (
+                    "user_id" not in params
+                    and event.conversation_info.type == "private"
+                ):
+                    params["user_id"] = event.conversation_info.conversation_id
+            if event.user_info and "user_id" not in params:
+                # 对于某些操作，比如 get_member_info，如果没指定目标，可能就是查自己
+                pass  # 暂时不补全，避免歧义，但可以留个口子
 
             # 3. 接着是复杂的、需要特殊伺候的动作
             if action_alias in COMPLEX_ACTION_HANDLERS:
@@ -369,6 +373,9 @@ class SendHandlerAicarus:
             await self.server_connection.send(json.dumps(payload))
             # 使用 message_queue 中的工具等待响应
             return await get_napcat_api_response(request_uuid, timeout_seconds=30.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"调用 Napcat API '{action}' 超时。")
+            return {"status": "error", "message": f"调用 Napcat API '{action}' 超时"}
         except websockets.ConnectionClosed:
             logger.error(f"调用 Napcat API '{action}' 时连接已关闭。")
             return {
