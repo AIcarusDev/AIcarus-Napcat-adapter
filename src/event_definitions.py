@@ -242,7 +242,7 @@ class NoticeEventFactory(BaseEventFactory):
                 "ban_type": "ban" if duration > 0 else "lift_ban",
             }
 
-        elif notice_type == NoticeType.group_recall or notice_type == NoticeType.friend_recall:
+        elif notice_type in [NoticeType.group_recall, NoticeType.friend_recall]:
             event_type_suffix = "message.recalled"
             operator = (
                 await recv_handler._napcat_to_aicarus_userinfo(
@@ -473,8 +473,9 @@ class MetaEventFactory(BaseEventFactory):
         elif event_type_raw == MetaEventType.heartbeat:
             # 心跳事件，我们自己消化，不发给Core
             status_obj = napcat_event.get("status", {})
-            is_online = status_obj.get("online", False) and status_obj.get("good", False)
-            if is_online:
+            if is_online := status_obj.get("online", False) and status_obj.get(
+                "good", False
+            ):
                 recv_handler.last_heart_beat = time.time()
                 if napcat_event.get("interval"):
                     recv_handler.interval = napcat_event.get("interval") / 1000.0
