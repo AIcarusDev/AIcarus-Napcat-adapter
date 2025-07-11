@@ -51,11 +51,10 @@ async def napcat_message_receiver(
     # 把获取 Bot ID 这个任务用 create_task 扔到后台去做，
     # 不要让它阻塞我们接收消息的主干道
     # 我们不再 await 它，让招待员（本函数）立刻开始工作
-    if not hasattr(napcat_message_receiver, "_background_tasks"):
-        napcat_message_receiver._background_tasks = set()
+    background_tasks = set()
     bot_id_task = asyncio.create_task(recv_handler_aicarus._get_bot_id())
-    napcat_message_receiver._background_tasks.add(bot_id_task)
-    bot_id_task.add_done_callback(napcat_message_receiver._background_tasks.discard)
+    background_tasks.add(bot_id_task)
+    bot_id_task.add_done_callback(background_tasks.discard)
 
     # ------------------ 1: 接入 Core ------------------
     # 在确认QQ已连接后，我们才开始启动与Core的连接
