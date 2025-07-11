@@ -1,6 +1,6 @@
-# AIcarus-Napcat-Adapter v2.0.0
+# AIcarusNapcatAdapter v2.0.0
 
-**AIcarus-Napcat-adapter** 是一个高效、稳定的适配器，旨在将 Napcat QQ 客户端的事件和 API 调用，无缝转换为 **AIcarus 消息协议 v1.6.0** 进行通信。它作为 Napcat 和 AIcarus Core 之间的核心桥梁，确保了消息和指令能够准确、可靠地双向流动。
+**AIcarusNapcatAdapter** 是一个高效、稳定的适配器，旨在将 Napcat QQ 客户端的事件和 API 调用，无缝转换为 **AIcarus 消息协议 v1.6.0** 进行通信。它作为 Napcat 和 AIcarus Core 之间的核心桥梁，确保了消息和指令能够准确、可靠地双向流动。
 
 ## ✨ 功能亮点 (v2.0.0)
 

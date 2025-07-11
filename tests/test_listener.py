@@ -1,12 +1,11 @@
 import asyncio
 import json
+
 import websockets
 
 
-async def listener(websocket):
-    """
-    一个升级版的监听器，它会用漂亮的、缩进的JSON格式打印所有收到的消息。
-    """
+async def listener(websocket: websockets.WebSocketServerProtocol) -> None:
+    """一个升级版的监听器，它会用漂亮的、缩进的JSON格式打印所有收到的消息."""
     print(f"一个适配器连接上了！地址: {websocket.remote_address}")
     try:
         async for message in websocket:

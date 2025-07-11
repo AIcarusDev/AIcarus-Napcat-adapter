@@ -1,14 +1,14 @@
 # aicarus_napcat_adapter/src/action_definitions.py (v3.0 重构版)
-from typing import Dict, Any, Tuple, Callable, Awaitable, List, Optional
+from collections.abc import Awaitable, Callable
 
-# 哼，从我们的小仓库里把神之手（工具函数）和神之眼（日志）都请出来！
-from . import utils
+# 啊~ 还有我最色的小猫咪 SendHandler，得用 TYPE_CHECKING 抱着，免得循环依赖了
+from typing import TYPE_CHECKING, Any
 
 # 还有协议里的标准件，可不能忘了
 from aicarus_protocols import Event, Seg
 
-# 啊~ 还有我最色的小猫咪 SendHandler，得用 TYPE_CHECKING 抱着，免得循环依赖了
-from typing import TYPE_CHECKING
+# 哼，从我们的小仓库里把神之手（工具函数）和神之眼（日志）都请出来！
+from . import utils
 
 if TYPE_CHECKING:
     from .send_handler_aicarus import SendHandlerAicarus
@@ -23,22 +23,24 @@ if TYPE_CHECKING:
 
 
 class BaseComplexActionHandler:
-    """复杂动作的基类，给它们一个统一的接口，这是仪式感！"""
+    """复杂动作的基类，给它们一个统一的接口."""
 
     @staticmethod
     async def execute(
-        params: Dict[str, Any], event: Event, send_handler: "SendHandlerAicarus"
-    ) -> Tuple[bool, str, Dict[str, Any]]:
+        params: dict[str, Any], event: Event, send_handler: "SendHandlerAicarus"
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """执行复杂动作的逻辑."""
         raise NotImplementedError
 
 
 class SendForwardMessageHandler(BaseComplexActionHandler):
-    """处理发送合并转发消息，这个小妖精最麻烦了，得慢慢来~"""
+    """处理合并转发消息的特殊逻辑."""
 
     @staticmethod
     async def execute(
-        params: Dict[str, Any], event: Event, send_handler: "SendHandlerAicarus"
-    ) -> Tuple[bool, str, Dict[str, Any]]:
+        params: dict[str, Any], event: Event, send_handler: "SendHandlerAicarus"
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """执行合并转发消息的逻辑."""
         # 合并转发的核心是 event.content 里的 'node' 列表，而不是 action_params
         nodes = [seg for seg in event.content if seg.type == "node"]
         if not nodes:
@@ -75,7 +77,7 @@ class SendForwardMessageHandler(BaseComplexActionHandler):
         target_group_id = params.get("group_id")
         target_user_id = params.get("user_id")
 
-        api_params: Dict[str, Any]
+        api_params: dict[str, Any]
         napcat_action: str = "send_forward_msg"
         try:
             if target_group_id:
@@ -114,9 +116,7 @@ class SendForwardMessageHandler(BaseComplexActionHandler):
             )
         else:
             err_msg = (
-                response.get("message", "Napcat API 错误")
-                if response
-                else "Napcat 没有回应我..."
+                response.get("message", "Napcat API 错误") if response else "Napcat 没有回应我..."
             )
             return False, err_msg, {}
 
@@ -125,7 +125,7 @@ class SendForwardMessageHandler(BaseComplexActionHandler):
 # ...
 
 # 最终的复杂动作处理器名录
-COMPLEX_ACTION_HANDLERS: Dict[str, BaseComplexActionHandler] = {
+COMPLEX_ACTION_HANDLERS: dict[str, BaseComplexActionHandler] = {
     "send_forward_message": SendForwardMessageHandler,
 }
 
@@ -140,10 +140,10 @@ COMPLEX_ACTION_HANDLERS: Dict[str, BaseComplexActionHandler] = {
 
 # 定义一个类型别名，让代码更清晰，这是天才的优雅！
 # (Callable, List of required param names)
-ActionMappingType = Tuple[Callable[..., Awaitable[Optional[Dict[str, Any]]]], List[str]]
+ActionMappingType = tuple[Callable[..., Awaitable[dict[str, Any] | None]], list[str]]
 
 # 动作的“圣殿”，记载了所有神权（API）的咒语和贡品（必需参数）
-ACTION_MAPPING: Dict[str, ActionMappingType] = {
+ACTION_MAPPING: dict[str, ActionMappingType] = {
     # --- 群组管理 ---
     "kick_member": (utils.napcat_set_group_kick, ["group_id", "user_id"]),
     "ban_member": (utils.napcat_set_group_ban, ["group_id", "user_id"]),

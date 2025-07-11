@@ -1,31 +1,30 @@
 # aicarus_napcat_adapter/src/send_handler_aicarus.py (v3.0 重构版)
-from typing import List, Dict, Any, Optional, Tuple, Callable
 import json
 import uuid
-import asyncio
+from collections.abc import Callable
+from typing import Any
+
 import websockets
+
+# AIcarus 协议库
+from aicarus_protocols import Event, EventBuilder, Seg, find_seg_by_type
+
+# 哼哼，从我们重构好的新世界里导入！
+from .action_definitions import ACTION_MAPPING, COMPLEX_ACTION_HANDLERS
 
 # 内部模块
 from .logger import logger
 from .message_queue import get_napcat_api_response
-from .recv_handler_aicarus import recv_handler_aicarus
-
-# 哼哼，从我们重构好的新世界里导入！
-from .action_definitions import ACTION_MAPPING, COMPLEX_ACTION_HANDLERS
 from .napcat_definitions import NapcatSegType
-
-# AIcarus 协议库
-from aicarus_protocols import Event, Seg, EventBuilder, find_seg_by_type
+from .recv_handler_aicarus import recv_handler_aicarus
 
 
 class SendHandlerAicarus:
-    """这是一个专门为AIcarus设计的发送处理器 (v3.0+)"""
+    """这是一个专门为AIcarus设计的发送处理器."""
 
-    def __init__(self):
-        self.server_connection: Optional[websockets.WebSocketServerProtocol] = None
-        self.SEGMENT_CONVERTERS: Dict[
-            str, Callable[[Seg], Optional[Dict[str, Any]]]
-        ] = {
+    def __init__(self) -> None:
+        self.server_connection: websockets.WebSocketServerProtocol | None = None
+        self.SEGMENT_CONVERTERS: dict[str, Callable[[Seg], dict[str, Any] | None]] = {
             "text": self._convert_text_seg,
             "at": self._convert_at_seg,
             "reply": self._convert_reply_seg,
@@ -41,15 +40,15 @@ class SendHandlerAicarus:
 
     # --- 这是各种工具的具体实现 ---
 
-    def _convert_text_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
-        """处理文字，最简单了，没劲。"""
+    def _convert_text_seg(self, seg: Seg) -> dict[str, Any] | None:
+        """处理文本消息."""
         return {
             "type": NapcatSegType.text,
             "data": {"text": str(seg.data.get("text", ""))},
         }
 
-    def _convert_at_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
-        """处理@，也简单。"""
+    def _convert_at_seg(self, seg: Seg) -> dict[str, Any] | None:
+        """处理@消息，必须有 user_id."""
         target_qq = seg.data.get("user_id")
         if not target_qq:
             logger.warning("发送@失败：Seg段中缺少 user_id。")
@@ -59,8 +58,8 @@ class SendHandlerAicarus:
             "data": {"qq": str(target_qq)},
         }
 
-    def _convert_reply_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
-        """处理回复，就是那个 id。"""
+    def _convert_reply_seg(self, seg: Seg) -> dict[str, Any] | None:
+        """处理回复消息，必须有 message_id."""
         msg_id = seg.data.get("message_id")
         if not msg_id:
             logger.warning("发送回复失败：Seg段中缺少 message_id。")
@@ -70,11 +69,8 @@ class SendHandlerAicarus:
             "data": {"id": str(msg_id)},
         }
 
-    def _convert_image_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
-        """
-        处理图片，麻烦死了。
-        AIcarus协议里的file_id, url, base64，我直接丢给Napcat的file字段，让它自己头疼去。
-        """
+    def _convert_image_seg(self, seg: Seg) -> dict[str, Any] | None:
+        """处理图片消息，支持多种来源."""
         file_source = (
             seg.data.get("file")
             or seg.data.get("file_id")
@@ -86,21 +82,17 @@ class SendHandlerAicarus:
             return None
         return {"type": NapcatSegType.image, "data": {"file": file_source}}
 
-    def _convert_face_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
-        """QQ表情，就是个数字ID，小意思。"""
+    def _convert_face_seg(self, seg: Seg) -> dict[str, Any] | None:
+        """QQ表情消息，必须有 id."""
         face_id = seg.data.get("id")
         if face_id is None:
             logger.warning("发送表情失败：Seg段中缺少 id。")
             return None
         return {"type": NapcatSegType.face, "data": {"id": str(face_id)}}
 
-    def _convert_media_seg(
-        self, seg: Seg, napcat_type: str
-    ) -> Optional[Dict[str, Any]]:
-        """把语音、视频、文件这种媒体资源都用这个处理，懒得写三遍。"""
-        file_source = (
-            seg.data.get("file") or seg.data.get("url") or seg.data.get("path")
-        )
+    def _convert_media_seg(self, seg: Seg, napcat_type: str) -> dict[str, Any] | None:
+        """处理媒体消息（语音、视频、文件等）."""
+        file_source = seg.data.get("file") or seg.data.get("url") or seg.data.get("path")
         if not file_source:
             logger.warning(f"发送{napcat_type}失败：Seg段中缺少 file, url 或 path。")
             return None
@@ -112,20 +104,20 @@ class SendHandlerAicarus:
 
         return {"type": napcat_type, "data": data}
 
-    def _convert_record_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
-        """语音，跟图片也差不多嘛。"""
+    def _convert_record_seg(self, seg: Seg) -> dict[str, Any] | None:
+        """处理语音消息，必须有 file 或 url."""
         return self._convert_media_seg(seg, NapcatSegType.record)
 
-    def _convert_video_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
-        """视频也一样，把文件丢过去就行了。"""
+    def _convert_video_seg(self, seg: Seg) -> dict[str, Any] | None:
+        """处理视频消息，必须有 file 或 url."""
         return self._convert_media_seg(seg, NapcatSegType.video)
 
-    def _convert_file_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
-        """文件也是。"""
+    def _convert_file_seg(self, seg: Seg) -> dict[str, Any] | None:
+        """处理文件消息，必须有 file 或 url."""
         return self._convert_media_seg(seg, "file")  # NapcatSegType里没定义，我直接写了
 
-    def _convert_contact_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
-        """推荐好友或群，哼，你最好把类型和ID给对。"""
+    def _convert_contact_seg(self, seg: Seg) -> dict[str, Any] | None:
+        """处理联系人名片消息，必须有 contact_type 和 id."""
         contact_type = seg.data.get("contact_type")  # 'qq' or 'group'
         contact_id = seg.data.get("id")
         if not contact_type or not contact_id:
@@ -136,8 +128,8 @@ class SendHandlerAicarus:
             "data": {"type": contact_type, "id": str(contact_id)},
         }
 
-    def _convert_music_seg(self, seg: Seg) -> Optional[Dict[str, Any]]:
-        """音乐分享？这个最麻烦了！分两种，你自己看好怎么传数据！"""
+    def _convert_music_seg(self, seg: Seg) -> dict[str, Any] | None:
+        """处理音乐分享消息，支持平台音乐和自定义音乐."""
         music_type = seg.data.get("music_type")  # 'qq', '163', 'custom' etc.
         if not music_type:
             logger.warning("发送音乐分享失败：Seg段中缺少 music_type。")
@@ -170,9 +162,9 @@ class SendHandlerAicarus:
 
     # --- 重构后的工具 ---
     async def _aicarus_segs_to_napcat_array(
-        self, aicarus_segments: List[Seg]
-    ) -> List[Dict[str, Any]]:
-        napcat_message_array: List[Dict[str, Any]] = []
+        self, aicarus_segments: list[Seg]
+    ) -> list[dict[str, Any]]:
+        napcat_message_array: list[dict[str, Any]] = []
         for seg in aicarus_segments:
             if seg.type != "action_params":
                 if converter := self.SEGMENT_CONVERTERS.get(seg.type):
@@ -185,7 +177,7 @@ class SendHandlerAicarus:
         return napcat_message_array
 
     async def handle_aicarus_action(self, raw_aicarus_event_dict: dict) -> None:
-        """处理来自核心的动作事件，执行相应的操作并返回结果"""
+        """处理来自AIcarus的动作事件."""
         try:
             aicarus_event = Event.from_dict(raw_aicarus_event_dict)
         except Exception as e:
@@ -193,7 +185,8 @@ class SendHandlerAicarus:
             return
 
         logger.info(
-            f"发送处理器: 接收到动作事件 '{aicarus_event.event_id}'，类型: {aicarus_event.event_type}"
+            f"发送处理器: 接收到动作事件 '{aicarus_event.event_id}'，"
+            f"类型: {aicarus_event.event_type}"
         )
 
         success, message, details = await self._execute_action(aicarus_event)
@@ -206,14 +199,12 @@ class SendHandlerAicarus:
         )
         await recv_handler_aicarus.dispatch_to_core(response_event)
         logger.info(
-            f"发送处理器: 已将动作 '{aicarus_event.event_id}' 的直接结果 ({'success' if success else 'failure'}) 发回核心"
+            f"发送处理器: 已将动作 '{aicarus_event.event_id}' 的直接结果 "
+            f"({'success' if success else 'failure'}) 发回核心"
         )
 
-    async def _execute_action(self, event: Event) -> Tuple[bool, str, Dict[str, Any]]:
-        """
-        统一的动作执行器 (v3.0+)。
-        它现在能优雅地处理来自Core的、包含'action_params'的结构化事件。
-        """
+    async def _execute_action(self, event: Event) -> tuple[bool, str, dict[str, Any]]:
+        """执行一个动作事件，返回执行结果."""
         full_action_type = event.event_type
         if not full_action_type.startswith("action."):
             error_msg = f"收到了一个非动作类型的事件: {full_action_type}"
@@ -233,9 +224,7 @@ class SendHandlerAicarus:
             params_seg = find_seg_by_type(event.content, "action_params")
             if not params_seg:
                 # 某些无参数动作可能没有这个Seg，我们给它一个空的
-                logger.debug(
-                    f"动作 '{action_alias}' 未提供 action_params，将使用空参数执行。"
-                )
+                logger.debug(f"动作 '{action_alias}' 未提供 action_params，将使用空参数执行。")
                 params = {}
             else:
                 params = params_seg.data
@@ -244,10 +233,7 @@ class SendHandlerAicarus:
             if event.conversation_info:
                 if "group_id" not in params and event.conversation_info.type == "group":
                     params["group_id"] = event.conversation_info.conversation_id
-                if (
-                    "user_id" not in params
-                    and event.conversation_info.type == "private"
-                ):
+                if "user_id" not in params and event.conversation_info.type == "private":
                     params["user_id"] = event.conversation_info.conversation_id
             if event.user_info and "user_id" not in params:
                 # 对于某些操作，比如 get_member_info，如果没指定目标，可能就是查自己
@@ -294,33 +280,27 @@ class SendHandlerAicarus:
 
     async def _handle_send_message_action(
         self, aicarus_event: Event
-    ) -> Tuple[bool, str, Dict[str, Any]]:
-        """专门处理发送消息的动作"""
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """专门处理发送消息的动作."""
         conv_info = aicarus_event.conversation_info
         if not conv_info:
             return False, "发送消息失败：缺少会话信息(conversation_info)。", {}
 
         target_group_id = (
-            conv_info.conversation_id
-            if conv_info and conv_info.type == "group"
-            else None
+            conv_info.conversation_id if conv_info and conv_info.type == "group" else None
         )
         target_user_id = (
-            conv_info.conversation_id
-            if conv_info and conv_info.type == "private"
-            else None
+            conv_info.conversation_id if conv_info and conv_info.type == "private" else None
         )
 
         if not target_group_id and not target_user_id:
             return False, "发送消息失败：缺少目标 group_id 或 user_id。", {}
 
-        napcat_segments = await self._aicarus_segs_to_napcat_array(
-            aicarus_event.content
-        )
+        napcat_segments = await self._aicarus_segs_to_napcat_array(aicarus_event.content)
         if not napcat_segments:
             return False, "消息内容为空，无法发送。", {}
 
-        params: Dict[str, Any]
+        params: dict[str, Any]
         napcat_action: str
         try:
             if target_group_id:
@@ -349,14 +329,12 @@ class SendHandlerAicarus:
             return True, "成功发送", {"sent_message_id": sent_message_id}
         else:
             err_msg = (
-                response.get("message", "Napcat API 错误")
-                if response
-                else "Napcat 没有回应..."
+                response.get("message", "Napcat API 错误") if response else "Napcat 没有回应..."
             )
             return False, err_msg, {}
 
-    async def _send_to_napcat_api(self, action: str, params: dict) -> Optional[dict]:
-        """将API请求安全地发送到Napcat服务器，并等待响应"""
+    async def _send_to_napcat_api(self, action: str, params: dict) -> dict | None:
+        """将API请求安全地发送到Napcat服务器，并等待响应."""
         if not self.server_connection:
             logger.error(f"无法调用 Napcat API '{action}': WebSocket 连接不可用。")
             # 返回一个符合预期的错误结构
@@ -373,7 +351,7 @@ class SendHandlerAicarus:
             await self.server_connection.send(json.dumps(payload))
             # 使用 message_queue 中的工具等待响应
             return await get_napcat_api_response(request_uuid, timeout_seconds=30.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(f"调用 Napcat API '{action}' 超时。")
             return {"status": "error", "message": f"调用 Napcat API '{action}' 超时"}
         except websockets.ConnectionClosed:

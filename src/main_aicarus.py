@@ -1,42 +1,49 @@
 # AIcarus Napcat Adapter - Main Entry Point for Protocol v1.5.1
 # aicarus_napcat_adapter/src/main_aicarus.py
 import asyncio
-import sys
 import json
+import sys
+
 import websockets  # 确保导入
-
-# 项目内部模块
-from .logger import logger
-
-# 直接导入 recv_handler_aicarus 实例，而不是类
-from .recv_handler_aicarus import recv_handler_aicarus
-from .send_handler_aicarus import send_handler_aicarus
-from .config import get_config  # 添加global_config
-from .aic_com_layer import (  # 从新的 v1.5.1 通信层导入
-    aic_start_com,  # 这个函数现在会启动 core_connection_client.run_forever()
-    aic_stop_com,  # 这个函数会调用 core_connection_client.stop_communication()
-    router_aicarus as core_router,  # router_aicarus 是 core_connection_client 的实例
-)
-
-# 从新的消息队列模块导入 (如果 napcat_event_processor 仍使用它)
-from .message_queue import (
-    internal_event_queue,
-    put_napcat_api_response,
-    check_stale_api_responses_periodically,
-)
 
 # v1.5.1 协议库
 from aicarus_protocols import (
     PROTOCOL_VERSION,
 )
 
+from .aic_com_layer import (  # 从新的 v1.5.1 通信层导入
+    aic_start_com,  # 这个函数现在会启动 core_connection_client.run_forever()
+    aic_stop_com,  # 这个函数会调用 core_connection_client.stop_communication()
+)
+from .aic_com_layer import (
+    router_aicarus as core_router,  # router_aicarus 是 core_connection_client 的实例
+)
+from .config import (
+    AdapterConfigData,
+    get_config,  # 添加global_config
+)
+
+# 项目内部模块
+from .logger import logger
+
+# 从新的消息队列模块导入 (如果 napcat_event_processor 仍使用它)
+from .message_queue import (
+    check_stale_api_responses_periodically,
+    internal_event_queue,
+    put_napcat_api_response,
+)
+
+# 直接导入 recv_handler_aicarus 实例，而不是类
+from .recv_handler_aicarus import recv_handler_aicarus
+from .send_handler_aicarus import send_handler_aicarus
+
 # recv_handler_aicarus 实例已在其模块中创建并导入，此处无需再创建
 
 
 async def napcat_message_receiver(
     server_connection: websockets.WebSocketServerProtocol,
-):
-    """处理来自 Napcat 的连接和消息，并将消息分发给 RecvHandlerAicarus"""
+) -> None:
+    """处理来自 Napcat 的连接和消息，并将消息分发给 RecvHandlerAicarus."""
     logger.info(f"Napcat 客户端已连接: {server_connection.remote_address}")
     recv_handler_aicarus.server_connection = server_connection
     send_handler_aicarus.server_connection = server_connection
@@ -44,7 +51,10 @@ async def napcat_message_receiver(
     # 把获取 Bot ID 这个任务用 create_task 扔到后台去做，
     # 不要让它阻塞我们接收消息的主干道
     # 我们不再 await 它，让招待员（本函数）立刻开始工作
-    asyncio.create_task(recv_handler_aicarus._get_bot_id())
+    background_tasks = set()
+    bot_id_task = asyncio.create_task(recv_handler_aicarus._get_bot_id())
+    background_tasks.add(bot_id_task)
+    bot_id_task.add_done_callback(background_tasks.discard)
 
     # ------------------ 1: 接入 Core ------------------
     # 在确认QQ已连接后，我们才开始启动与Core的连接
@@ -54,9 +64,7 @@ async def napcat_message_receiver(
 
     try:
         async for raw_message_str in server_connection:
-            logger.debug(
-                f"AIcarus Adapter: Raw from Napcat: {raw_message_str[:120]}..."
-            )
+            logger.debug(f"AIcarus Adapter: Raw from Napcat: {raw_message_str[:120]}...")
             try:
                 napcat_event: dict = json.loads(raw_message_str)
             except json.JSONDecodeError:
@@ -80,9 +88,7 @@ async def napcat_message_receiver(
                 )
 
     except websockets.exceptions.ConnectionClosedOK:
-        logger.info(
-            f"Napcat client {server_connection.remote_address} disconnected gracefully."
-        )
+        logger.info(f"Napcat client {server_connection.remote_address} disconnected gracefully.")
     except websockets.exceptions.ConnectionClosedError as e:
         logger.warning(
             f"Napcat client {server_connection.remote_address} connection closed with error: {e}"
@@ -109,8 +115,8 @@ async def napcat_message_receiver(
         # -----------------------------------------------------------
 
 
-async def napcat_event_processor():
-    """从内部队列中取出 Napcat 事件并分发给 RecvHandlerAicarus 的统一入口"""
+async def napcat_event_processor() -> None:
+    """从内部队列中取出 Napcat 事件并分发给 RecvHandlerAicarus 的统一入口."""
     logger.info("Napcat 事件处理器已启动，等待处理事件... (工厂模式)")
     while True:
         napcat_event = await internal_event_queue.get()
@@ -127,10 +133,11 @@ async def napcat_event_processor():
             internal_event_queue.task_done()
 
 
-async def start_napcat_websocket_server(config):
-    """启动 WebSocket 服务器，等待 Napcat 连接"""
+async def start_napcat_websocket_server(config: AdapterConfigData) -> None:
+    """启动 WebSocket 服务器，等待 Napcat 连接."""
     logger.info(
-        f"启动 AIcarus Napcat Adapter WebSocket 服务器 (Protocol v{PROTOCOL_VERSION}): {config.adapter_server_host}:{config.adapter_server_port}"
+        f"启动 AIcarus Napcat Adapter WebSocket 服务器 (Protocol v{PROTOCOL_VERSION}): "
+        f"{config.adapter_server_host}:{config.adapter_server_port}"
     )
 
     try:
@@ -143,7 +150,8 @@ async def start_napcat_websocket_server(config):
             max_size=2**20,  # 1MB max message size
         ):
             logger.info(
-                f"AIcarus Napcat Adapter WebSocket 服务器已启动，等待 Napcat 连接... (Protocol v{PROTOCOL_VERSION})"
+                f"AIcarus Napcat Adapter WebSocket 服务器已启动，等待 Napcat 连接... "
+                f"(Protocol v{PROTOCOL_VERSION})"
             )
             await asyncio.Future()  # 永远运行
     except Exception as e:
@@ -151,8 +159,8 @@ async def start_napcat_websocket_server(config):
         sys.exit(1)
 
 
-async def main():
-    """主函数，启动所有组件"""
+async def main() -> None:
+    """主函数，启动所有组件."""
     config = get_config()
     logger.info(f"AIcarus Napcat Adapter 正在启动... (Protocol v{PROTOCOL_VERSION})")
     logger.info(f"配置: Napcat 连接端口 {config.adapter_server_port}")

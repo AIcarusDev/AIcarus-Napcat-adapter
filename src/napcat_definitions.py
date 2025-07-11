@@ -2,36 +2,50 @@
 
 
 class MetaEventType:
+    """Napcat 元事件类型."""
+
     lifecycle = "lifecycle"
     heartbeat = "heartbeat"
 
     class Lifecycle:
+        """Napcat 生命周期事件类型."""
+
         enable = "enable"
         disable = "disable"
         connect = "connect"
 
 
 class MessageType:
+    """Napcat 消息类型."""
+
     private = "private"
     group = "group"
     guild = "guild"
 
     class Private:
+        """Napcat 私聊消息类型."""
+
         friend = "friend"
         group = "group"  # 群临时会话
         guild = "guild"  # 频道私聊
         other = "other"
 
     class Group:
+        """Napcat 群组消息类型."""
+
         normal = "normal"
         anonymous = "anonymous"
         notice = "notice"
 
     class Guild:
+        """Napcat 频道消息类型."""
+
         normal = "normal"
 
 
 class NoticeType:
+    """Napcat 通知类型."""
+
     group_upload = "group_upload"
     group_admin = "group_admin"
     group_decrease = "group_decrease"
@@ -47,6 +61,8 @@ class NoticeType:
     notify = "notify"
 
     class Notify:
+        """Napcat 通知类型."""
+
         poke = "poke"
         lucky_king = "lucky_king"
         honor = "honor"
@@ -54,12 +70,16 @@ class NoticeType:
 
 
 class RequestType:
+    """Napcat 请求类型."""
+
     friend = "friend"
     group = "group"
 
 
 # Napcat 消息段类型 (real_message_type)
 class NapcatSegType:
+    """Napcat 消息段类型."""
+
     text = "text"
     face = "face"
     image = "image"

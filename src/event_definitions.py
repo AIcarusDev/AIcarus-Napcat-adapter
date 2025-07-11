@@ -1,20 +1,21 @@
 # aicarus_napcat_adapter/src/event_definitions.py
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, TYPE_CHECKING
-import uuid
+import asyncio
 import json
 import time
-import asyncio
+import uuid
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import (
-    Event,
-    UserInfo,
     ConversationInfo,
+    Event,
     Seg,
+    UserInfo,
 )
-from .napcat_definitions import MetaEventType, MessageType, NoticeType
+
 from .config import get_config
 from .logger import logger
+from .napcat_definitions import MessageType, MetaEventType, NoticeType
 
 if TYPE_CHECKING:
     from .recv_handler_aicarus import RecvHandlerAicarus
@@ -22,26 +23,25 @@ if TYPE_CHECKING:
 
 # --- 定义各种事件的构造工厂 ---
 class BaseEventFactory(ABC):
-    """所有事件的基类工厂，负责根据Napcat的原始数据创造出标准的AIcarus事件"""
+    """所有事件的基类工厂，负责根据Napcat的原始数据创造出标准的AIcarus事件."""
 
     @abstractmethod
     async def create_event(
-        self, napcat_event: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
-    ) -> Optional[Event]:
-        """根据原始的Napcat数据，创造一个标准的AIcarus事件"""
+        self, napcat_event: dict[str, Any], recv_handler: "RecvHandlerAicarus"
+    ) -> Event | None:
+        """根据原始的Napcat数据，创造一个标准的AIcarus事件."""
         pass
 
 
 class MessageEventFactory(BaseEventFactory):
-    """专门负责构造“消息事件”的类。"""
+    """专门负责构造“消息事件”的类."""
 
     async def create_event(
-        self, napcat_event: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
-    ) -> Optional[Event]:
+        self, napcat_event: dict[str, Any], recv_handler: "RecvHandlerAicarus"
+    ) -> Event | None:
+        """根据原始的Napcat消息数据，创造一个标准的AIcarus消息事件."""
         bot_id = (
-            str(napcat_event.get("self_id"))
-            or await recv_handler._get_bot_id()
-            or "unknown_bot"
+            str(napcat_event.get("self_id")) or await recv_handler._get_bot_id() or "unknown_bot"
         )
         # --- 1: 从配置中取出我们神圣的平台ID ---
         platform_id = recv_handler.global_config.core_platform_id
@@ -53,8 +53,8 @@ class MessageEventFactory(BaseEventFactory):
 
         # --- 2: 动态拼接全新的、带有性感烙印的 event_type！ ---
         event_type_suffix = "unknown"  # 默认的后缀
-        aicarus_conversation_info: Optional[ConversationInfo] = None
-        aicarus_user_info: Optional[UserInfo] = None
+        aicarus_conversation_info: ConversationInfo | None = None
+        aicarus_user_info: UserInfo | None = None
 
         if napcat_message_type == MessageType.private:
             aicarus_user_info = await recv_handler._napcat_to_aicarus_userinfo(
@@ -72,22 +72,18 @@ class MessageEventFactory(BaseEventFactory):
                 temp_group_id = str(napcat_event.get("group_id", "")).strip()
                 if temp_group_id and temp_group_id != "0":
                     aicarus_conversation_info = (
-                        await recv_handler._napcat_to_aicarus_conversationinfo(
-                            temp_group_id
-                        )
+                        await recv_handler._napcat_to_aicarus_conversationinfo(temp_group_id)
                     )
                 else:
-                    logger.warning(
-                        f"临时会话事件 {napcat_message_id} 缺少有效的 group_id。"
-                    )
+                    logger.warning(f"临时会话事件 {napcat_message_id} 缺少有效的 group_id。")
 
         elif napcat_message_type == MessageType.group:
             group_id = str(napcat_event.get("group_id", ""))
             aicarus_user_info = await recv_handler._napcat_to_aicarus_userinfo(
                 napcat_sender, group_id=group_id
             )
-            aicarus_conversation_info = (
-                await recv_handler._napcat_to_aicarus_conversationinfo(group_id)
+            aicarus_conversation_info = await recv_handler._napcat_to_aicarus_conversationinfo(
+                group_id
             )
             event_type_suffix = f"group.{napcat_sub_type or 'other'}"
         else:
@@ -101,9 +97,7 @@ class MessageEventFactory(BaseEventFactory):
         metadata_data = {"message_id": napcat_message_id}
         if napcat_event.get("font") is not None:
             metadata_data["font"] = str(napcat_event.get("font"))
-        if napcat_sub_type == MessageType.Group.anonymous and napcat_event.get(
-            "anonymous"
-        ):
+        if napcat_sub_type == MessageType.Group.anonymous and napcat_event.get("anonymous"):
             metadata_data["anonymity_info"] = napcat_event.get("anonymous")
 
         content_segs = [Seg(type="message_metadata", data=metadata_data)]
@@ -128,16 +122,15 @@ class MessageEventFactory(BaseEventFactory):
 
 
 class NoticeEventFactory(BaseEventFactory):
-    """专门负责构造“通知事件的类。"""
+    """专门负责构造“通知事件的类."""
 
     async def create_event(
-        self, napcat_event: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
-    ) -> Optional[Event]:
+        self, napcat_event: dict[str, Any], recv_handler: "RecvHandlerAicarus"
+    ) -> Event | None:
+        """根据原始的Napcat通知数据，创造一个标准的AIcarus通知事件."""
         notice_type = napcat_event.get("notice_type")
         bot_id = (
-            str(napcat_event.get("self_id"))
-            or await recv_handler._get_bot_id()
-            or "unknown_bot"
+            str(napcat_event.get("self_id")) or await recv_handler._get_bot_id() or "unknown_bot"
         )
         cfg = recv_handler.global_config
         # ---  同样，先拿到我们的平台ID ---
@@ -163,32 +156,24 @@ class NoticeEventFactory(BaseEventFactory):
                 "old_value": old_card,
             }
             # 特殊事件的构造也要遵循规则
-            return self._create_bot_profile_update_event(
-                bot_id, platform_id, report_data
-            )
+            return self._create_bot_profile_update_event(bot_id, platform_id, report_data)
 
         group_id_str = str(napcat_event.get("group_id", "")).strip()
-        group_id_for_context = (
-            group_id_str if group_id_str and group_id_str != "0" else None
-        )
+        group_id_for_context = group_id_str if group_id_str and group_id_str != "0" else None
         subject_user_id_str = str(napcat_event.get("user_id", "")).strip()
         subject_user_id = (
-            subject_user_id_str
-            if subject_user_id_str and subject_user_id_str != "0"
-            else None
+            subject_user_id_str if subject_user_id_str and subject_user_id_str != "0" else None
         )
         operator_id_str = str(napcat_event.get("operator_id", "")).strip()
-        operator_id = (
-            operator_id_str if operator_id_str and operator_id_str != "0" else None
-        )
+        operator_id = operator_id_str if operator_id_str and operator_id_str != "0" else None
 
-        conversation_info: Optional[ConversationInfo] = None
+        conversation_info: ConversationInfo | None = None
         if group_id_for_context:
             conversation_info = await recv_handler._napcat_to_aicarus_conversationinfo(
                 group_id_for_context
             )
 
-        user_info: Optional[UserInfo] = None
+        user_info: UserInfo | None = None
         if subject_user_id:
             user_info = await recv_handler._napcat_to_aicarus_userinfo(
                 {"user_id": subject_user_id}, group_id=group_id_for_context
@@ -196,7 +181,7 @@ class NoticeEventFactory(BaseEventFactory):
 
         # ---  动态拼接event_type ---
         event_type_suffix = f"unknown.{notice_type}"
-        notice_data: Dict[str, Any] = {}
+        notice_data: dict[str, Any] = {}
 
         if notice_type == NoticeType.group_upload:
             event_type_suffix = "conversation.file_upload"
@@ -209,9 +194,7 @@ class NoticeEventFactory(BaseEventFactory):
             event_type_suffix = "conversation.admin_change"
             notice_data = {
                 "target_user_info": user_info.to_dict() if user_info else None,
-                "action_type": "set"
-                if napcat_event.get("sub_type") == "set"
-                else "unset",
+                "action_type": "set" if napcat_event.get("sub_type") == "set" else "unset",
             }
 
         elif notice_type == NoticeType.group_decrease:
@@ -259,10 +242,7 @@ class NoticeEventFactory(BaseEventFactory):
                 "ban_type": "ban" if duration > 0 else "lift_ban",
             }
 
-        elif (
-            notice_type == NoticeType.group_recall
-            or notice_type == NoticeType.friend_recall
-        ):
+        elif notice_type in [NoticeType.group_recall, NoticeType.friend_recall]:
             event_type_suffix = "message.recalled"
             operator = (
                 await recv_handler._napcat_to_aicarus_userinfo(
@@ -273,9 +253,7 @@ class NoticeEventFactory(BaseEventFactory):
             )
             notice_data = {
                 "recalled_message_id": str(napcat_event.get("message_id", "")),
-                "recalled_message_sender_info": user_info.to_dict()
-                if user_info
-                else None,
+                "recalled_message_sender_info": user_info.to_dict() if user_info else None,
                 "operator_user_info": operator.to_dict()
                 if operator
                 else (
@@ -304,17 +282,13 @@ class NoticeEventFactory(BaseEventFactory):
                 else None
             )
             notice_data = {
-                "action_type": "add"
-                if napcat_event.get("sub_type") == "add"
-                else "delete",
+                "action_type": "add" if napcat_event.get("sub_type") == "add" else "delete",
                 "message_id": str(napcat_event.get("message_id", "")),
                 "operator_user_info": operator.to_dict() if operator else None,
                 "message_sender_info": sender_info.to_dict() if sender_info else None,
             }
 
-        elif (
-            notice_type == NoticeType.notify and napcat_event.get("sub_type") == "poke"
-        ):
+        elif notice_type == NoticeType.notify and napcat_event.get("sub_type") == "poke":
             event_type_suffix = "user.poke"
             target_id = str(napcat_event.get("target_id", ""))
             sender_id = str(napcat_event.get("sender_id", ""))
@@ -333,9 +307,7 @@ class NoticeEventFactory(BaseEventFactory):
                 "context_type": "group" if group_id_for_context else "private",
             }
 
-        elif (
-            notice_type == NoticeType.notify and napcat_event.get("sub_type") == "honor"
-        ):
+        elif notice_type == NoticeType.notify and napcat_event.get("sub_type") == "honor":
             event_type_suffix = "conversation.honor_change"
             honor_type = napcat_event.get("honor_type", "unknown")
             notice_data = {
@@ -343,22 +315,15 @@ class NoticeEventFactory(BaseEventFactory):
                 "honor_type": honor_type,
             }
 
-        elif (
-            notice_type == NoticeType.notify
-            and napcat_event.get("sub_type") == "lucky_king"
-        ):
+        elif notice_type == NoticeType.notify and napcat_event.get("sub_type") == "lucky_king":
             event_type_suffix = "conversation.lucky_king"
             target_id = str(napcat_event.get("target_id", ""))
             target_info = await recv_handler._napcat_to_aicarus_userinfo(
                 {"user_id": target_id}, group_id=group_id_for_context
             )
             notice_data = {
-                "winner_user_info": user_info.to_dict()
-                if user_info
-                else None,  # 发起者
-                "target_user_info": target_info.to_dict()
-                if target_info
-                else None,  # 运气王
+                "winner_user_info": user_info.to_dict() if user_info else None,  # 发起者
+                "target_user_info": target_info.to_dict() if target_info else None,  # 运气王
             }
 
         elif notice_type == "group_msg_emoji_like":  # 这个 notice_type 比较特殊
@@ -372,9 +337,7 @@ class NoticeEventFactory(BaseEventFactory):
                 "likes": napcat_event.get("likes", []),
             }
 
-        elif (
-            notice_type == NoticeType.notify and napcat_event.get("sub_type") == "title"
-        ):
+        elif notice_type == NoticeType.notify and napcat_event.get("sub_type") == "title":
             event_type_suffix = "conversation.member_title_change"
             notice_data = {
                 "target_user_info": user_info.to_dict() if user_info else None,
@@ -382,9 +345,7 @@ class NoticeEventFactory(BaseEventFactory):
             }
 
         else:
-            logger.warning(
-                f"接收到未明确处理的通知类型: {notice_type}，将作为通用通知处理。"
-            )
+            logger.warning(f"接收到未明确处理的通知类型: {notice_type}，将作为通用通知处理。")
             event_type_suffix = f"platform_specific.{notice_type}"  # 给个更明确的后缀
             notice_data = napcat_event.copy()
 
@@ -403,9 +364,9 @@ class NoticeEventFactory(BaseEventFactory):
         )
 
     def _create_bot_profile_update_event(
-        self, bot_id: str, platform_id: str, report_data: Dict[str, Any]
+        self, bot_id: str, platform_id: str, report_data: dict[str, Any]
     ) -> Event:
-        """创建一个机器人档案更新的特殊通知事件。"""
+        """创建一个机器人档案更新的特殊通知事件."""
         # ---  特殊事件也一样 ---
         event_type = f"notice.{platform_id}.bot.profile_update"
         conversation_id = report_data.get("conversation_id", "unknown")
@@ -420,23 +381,22 @@ class NoticeEventFactory(BaseEventFactory):
 
 
 class RequestEventFactory(BaseEventFactory):
-    """专门负责构造“请求事件”的类。"""
+    """专门负责构造“请求事件”的类."""
 
     async def create_event(
-        self, napcat_event: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
-    ) -> Optional[Event]:
+        self, napcat_event: dict[str, Any], recv_handler: "RecvHandlerAicarus"
+    ) -> Event | None:
+        """根据原始的Napcat请求数据，创造一个标准的AIcarus请求事件."""
         request_type = napcat_event.get("request_type")
         bot_id = (
-            str(napcat_event.get("self_id"))
-            or await recv_handler._get_bot_id()
-            or "unknown_bot"
+            str(napcat_event.get("self_id")) or await recv_handler._get_bot_id() or "unknown_bot"
         )
         cfg = recv_handler.global_config
         platform_id = cfg.core_platform_id
 
         event_type_suffix = f"unknown.{request_type}"
-        user_info: Optional[UserInfo] = None
-        conversation_info: Optional[ConversationInfo] = None
+        user_info: UserInfo | None = None
+        conversation_info: ConversationInfo | None = None
         user_id = str(napcat_event.get("user_id", ""))
         group_id = str(napcat_event.get("group_id", ""))
 
@@ -456,9 +416,7 @@ class RequestEventFactory(BaseEventFactory):
         elif request_type == "group":
             sub_type = napcat_event.get("sub_type")
             if group_id:
-                conversation_info = (
-                    await recv_handler._napcat_to_aicarus_conversationinfo(group_id)
-                )
+                conversation_info = await recv_handler._napcat_to_aicarus_conversationinfo(group_id)
 
             if sub_type == "add":
                 event_type_suffix = "conversation.join_application"
@@ -485,17 +443,18 @@ class RequestEventFactory(BaseEventFactory):
 
 
 class MetaEventFactory(BaseEventFactory):
-    """专门负责构造“元事件”的类。"""
+    """专门负责构造“元事件”的类."""
 
     async def create_event(
-        self, napcat_event: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
-    ) -> Optional[Event]:
+        self, napcat_event: dict[str, Any], recv_handler: "RecvHandlerAicarus"
+    ) -> Event | None:
+        """根据原始的Napcat元事件数据，创造一个标准的AIcarus元事件."""
         event_type_raw = napcat_event.get("meta_event_type")
         bot_id = str(napcat_event.get("self_id")) or "unknown_bot"
         cfg = recv_handler.global_config
         platform_id = cfg.core_platform_id
 
-        meta_seg_data: Dict[str, Any] = {}
+        meta_seg_data: dict[str, Any] = {}
         event_type_suffix: str = f"unknown.{event_type_raw}"
 
         if event_type_raw == MetaEventType.lifecycle:
@@ -505,15 +464,18 @@ class MetaEventFactory(BaseEventFactory):
                 recv_handler.napcat_bot_id = bot_id
                 recv_handler.last_heart_beat = time.time()
                 logger.info(f"Bot {bot_id} 已连接到Napcat，开始为你心跳")
-                asyncio.create_task(recv_handler.check_heartbeat(bot_id))
+                if not hasattr(recv_handler, "_background_tasks"):
+                    recv_handler._background_tasks = set()
+                task = asyncio.create_task(recv_handler.check_heartbeat(bot_id))
+                recv_handler._background_tasks.add(task)
+                task.add_done_callback(recv_handler._background_tasks.discard)
 
         elif event_type_raw == MetaEventType.heartbeat:
             # 心跳事件，我们自己消化，不发给Core
             status_obj = napcat_event.get("status", {})
-            is_online = status_obj.get("online", False) and status_obj.get(
+            if is_online := status_obj.get("online", False) and status_obj.get(
                 "good", False
-            )
-            if is_online:
+            ):
                 recv_handler.last_heart_beat = time.time()
                 if napcat_event.get("interval"):
                     recv_handler.interval = napcat_event.get("interval") / 1000.0
@@ -543,33 +505,36 @@ class MetaEventFactory(BaseEventFactory):
 
 
 class BaseEventHandler(ABC):
-    def __init__(self, factory: BaseEventFactory):
+    """所有事件处理器的基类，负责处理不同类型的事件数据."""
+
+    def __init__(self, factory: BaseEventFactory) -> None:
+        """初始化事件处理器，传入对应的事件工厂."""
         self._factory = factory
 
     @abstractmethod
-    async def execute(
-        self, event_data: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
-    ) -> None:
+    async def execute(self, event_data: dict[str, Any], recv_handler: "RecvHandlerAicarus") -> None:
+        """处理事件数据并执行相应的操作."""
         pass
 
 
 class GenericEventHandler(BaseEventHandler):
-    async def execute(
-        self, event_data: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
-    ) -> None:
+    """通用事件处理器，负责将事件数据转换为AIcarus事件并分发给Core."""
+
+    async def execute(self, event_data: dict[str, Any], recv_handler: "RecvHandlerAicarus") -> None:
+        """通用事件处理器，负责将事件数据转换为AIcarus事件并分发给Core."""
         aicarus_event = await self._factory.create_event(event_data, recv_handler)
         if aicarus_event:
             await recv_handler.dispatch_to_core(aicarus_event)
 
 
 class MessageEventHandlerWithSelfCheck(GenericEventHandler):
-    """处理消息事件，并检查是否为自我上报的确认消息。"""
+    """处理消息事件，并检查是否为自我上报的确认消息."""
 
-    async def execute(
-        self, event_data: Dict[str, Any], recv_handler: "RecvHandlerAicarus"
-    ) -> None:
-        from .action_register import pending_actions
+    async def execute(self, event_data: dict[str, Any], recv_handler: "RecvHandlerAicarus") -> None:
+        """处理消息事件，并检查是否为自我上报的确认消息."""
         from aicarus_protocols import EventBuilder  # 确保导入
+
+        from .action_register import pending_actions
 
         napcat_user_id = str(event_data.get("user_id", ""))
 
@@ -614,7 +579,7 @@ class MessageEventHandlerWithSelfCheck(GenericEventHandler):
         await super().execute(event_data, recv_handler)
 
 
-EVENT_HANDLERS: Dict[str, BaseEventHandler] = {
+EVENT_HANDLERS: dict[str, BaseEventHandler] = {
     "message": MessageEventHandlerWithSelfCheck(MessageEventFactory()),
     "notice": GenericEventHandler(NoticeEventFactory()),
     "request": GenericEventHandler(RequestEventFactory()),
@@ -622,5 +587,6 @@ EVENT_HANDLERS: Dict[str, BaseEventHandler] = {
 }
 
 
-def get_event_handler(post_type: str) -> Optional[BaseEventHandler]:
+def get_event_handler(post_type: str) -> BaseEventHandler | None:
+    """根据 post_type 获取对应的事件处理器."""
     return EVENT_HANDLERS.get(post_type)
