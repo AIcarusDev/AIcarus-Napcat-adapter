@@ -1,23 +1,25 @@
-# aicarus_napcat_adapter/src/send_handler_aicarus.py (小色猫·最终高潮版)
+# aicarus_napcat_adapter/src/send_handler_aicarus.py (v3.0 重构版)
 from typing import List, Dict, Any, Optional, Tuple, Callable
 import json
 import uuid
-import websockets
 import asyncio
+import websockets
 
 # 内部模块
 from .logger import logger
 from .message_queue import get_napcat_api_response
 from .recv_handler_aicarus import recv_handler_aicarus
-from .action_definitions import get_action_handler
+
+# 哼哼，从我们重构好的新世界里导入！
+from .action_definitions import ACTION_MAPPING, COMPLEX_ACTION_HANDLERS
 from .napcat_definitions import NapcatSegType
 
 # AIcarus 协议库
-from aicarus_protocols import Event, Seg, EventBuilder
+from aicarus_protocols import Event, Seg, EventBuilder, find_seg_by_type
 
 
 class SendHandlerAicarus:
-    """这是一个专门为AIcarus设计的发送处理器，"""
+    """这是一个专门为AIcarus设计的发送处理器 (v3.0+)"""
 
     def __init__(self):
         self.server_connection: Optional[websockets.WebSocketServerProtocol] = None
@@ -172,8 +174,6 @@ class SendHandlerAicarus:
     ) -> List[Dict[str, Any]]:
         napcat_message_array: List[Dict[str, Any]] = []
         for seg in aicarus_segments:
-            # 对于非动作参数的Seg（如text, image），我们用它的type去转换
-            # 对于动作参数的Seg，它的type是'action_params'，我们不在这里转换它
             if seg.type != "action_params":
                 if converter := self.SEGMENT_CONVERTERS.get(seg.type):
                     if napcat_seg := converter(seg):
@@ -198,10 +198,9 @@ class SendHandlerAicarus:
 
         success, message, details = await self._execute_action(aicarus_event)
 
-        # EventBuilder 会从 aicarus_event.get_platform() 解析平台ID
         response_event = EventBuilder.create_action_response_event(
             response_type="success" if success else "failure",
-            original_event=aicarus_event,  # 直接把原始事件喂进去
+            original_event=aicarus_event,
             message=message,
             data=details,
         )
@@ -210,52 +209,81 @@ class SendHandlerAicarus:
             f"发送处理器: 已将动作 '{aicarus_event.event_id}' 的直接结果 ({'success' if success else 'failure'}) 发回核心"
         )
 
-    # --- 核心动作执行器 ---
     async def _execute_action(self, event: Event) -> Tuple[bool, str, Dict[str, Any]]:
-        """统一的动作执行器，无论是发消息还是其他"""
-
-        full_action_type = event.event_type  # e.g., "action.napcat_qq.send_message"
-
+        """
+        统一的动作执行器 (v3.0+)。
+        它现在能优雅地处理来自Core的、包含'action_params'的结构化事件。
+        """
+        full_action_type = event.event_type
         if not full_action_type.startswith("action."):
             error_msg = f"收到了一个非动作类型的事件: {full_action_type}"
             logger.warning(error_msg)
             return False, error_msg, {}
 
-        # 提取动作别名，去掉前缀部分
-        action_alias = full_action_type.split(".")[-1]
-
+        # 提取动作别名，现在更加健壮
+        action_alias = ".".join(full_action_type.split(".")[2:])
         logger.info(f"发送处理器正在分发动作，别名: '{action_alias}'")
 
         try:
-            # 1. 专门为 send_message 开一个快速通道，因为它最常用
+            # 1. 消息发送是最高优待，特殊通道！因为它不使用 action_params。
             if action_alias == "send_message":
                 return await self._handle_send_message_action(event)
 
-            # 2. 对于所有其他类型的动作，都统一从 action_definitions.py 里找处理器
-            handler = get_action_handler(action_alias)
-            if handler:
-                # 找到第一个类型为 'action_params' 的 Seg，把它里面的 data 交给 handler
-                action_seg = None
-                for seg in event.content:
-                    if seg.type == "action_params":
-                        action_seg = seg
-                        break
+            # 2. 找到承载着“神之旨意”的 action_params Seg
+            params_seg = find_seg_by_type(event.content, "action_params")
+            if not params_seg:
+                # 某些无参数动作可能没有这个Seg，我们给它一个空的
+                logger.debug(
+                    f"动作 '{action_alias}' 未提供 action_params，将使用空参数执行。"
+                )
+                params = {}
+            else:
+                params = params_seg.data
 
-                # 如果没有找到 action_params，可能是个不需要参数的动作，或者事件构造有误
-                if action_seg is None:
-                    # 对于某些不需要参数的动作，我们创建一个空的Seg给它
-                    if event.content:
-                        action_seg = (
-                            event.content[0]
-                            if event.content
-                            else Seg(type=action_alias, data={})
-                        )
-                    else:
-                        action_seg = Seg(type=action_alias, data={})
+            #  如果 params 里没有 group_id 或 user_id，就尝试从 event 的上下文中补全。
+            if event.conversation_info:
+                if "group_id" not in params and event.conversation_info.type == "group":
+                    params["group_id"] = event.conversation_info.conversation_id
+                if (
+                    "user_id" not in params
+                    and event.conversation_info.type == "private"
+                ):
+                    params["user_id"] = event.conversation_info.conversation_id
+            if event.user_info and "user_id" not in params:
+                # 对于某些操作，比如 get_member_info，如果没指定目标，可能就是查自己
+                pass  # 暂时不补全，避免歧义，但可以留个口子
 
-                return await handler.execute(action_seg, event, self)
+            # 3. 接着是复杂的、需要特殊伺候的动作
+            if action_alias in COMPLEX_ACTION_HANDLERS:
+                handler = COMPLEX_ACTION_HANDLERS[action_alias]
+                return await handler.execute(params, event, self)
 
-            # 3. 如果找不到任何处理器
+            # 4. 最后，是那些可以一招秒杀的常规动作
+            if action_alias in ACTION_MAPPING:
+                api_func, required_params = ACTION_MAPPING[action_alias]
+
+                # 检查贡品（必需参数）是否齐全
+                if not all(key in params for key in required_params):
+                    missing = [key for key in required_params if key not in params]
+                    error_msg = f"动作 '{action_alias}' 失败：缺少必需参数: {missing}"
+                    logger.warning(error_msg)
+                    return False, error_msg, {}
+
+                # 注入神力（server_connection），然后执行神之手！
+                # 注意：我们只把 params 字典解包传进去，不多也不少
+                response = await api_func(self.server_connection, **params)
+
+                # 判断神谕的结果
+                if response is not None:  # utils里的函数成功时返回字典，失败时返回None
+                    return True, f"动作 '{action_alias}' 执行成功。", response
+                else:
+                    return (
+                        False,
+                        f"动作 '{action_alias}' 执行失败：Adapter API 返回错误或无响应。",
+                        {},
+                    )
+
+            # 5. 如果在所有名录里都找不到
             error_msg = f"未知的动作别名 '{action_alias}'，适配器不知道该怎么做。"
             logger.warning(error_msg)
             return False, error_msg, {}
@@ -269,6 +297,9 @@ class SendHandlerAicarus:
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """专门处理发送消息的动作"""
         conv_info = aicarus_event.conversation_info
+        if not conv_info:
+            return False, "发送消息失败：缺少会话信息(conversation_info)。", {}
+
         target_group_id = (
             conv_info.conversation_id
             if conv_info and conv_info.type == "group"
@@ -280,18 +311,14 @@ class SendHandlerAicarus:
             else None
         )
 
-        if (
-            target_user_id
-            and isinstance(target_user_id, str)
-            and target_user_id.startswith("private_")
-        ):
-            target_user_id = target_user_id.replace("private_", "")
+        if not target_group_id and not target_user_id:
+            return False, "发送消息失败：缺少目标 group_id 或 user_id。", {}
 
         napcat_segments = await self._aicarus_segs_to_napcat_array(
             aicarus_event.content
         )
         if not napcat_segments:
-            return False, "Segs是为空，无法发送", {}
+            return False, "消息内容为空，无法发送。", {}
 
         params: Dict[str, Any]
         napcat_action: str
@@ -331,15 +358,34 @@ class SendHandlerAicarus:
     async def _send_to_napcat_api(self, action: str, params: dict) -> Optional[dict]:
         """将API请求安全地发送到Napcat服务器，并等待响应"""
         if not self.server_connection:
-            return {"status": "error", "message": "和Napcat的连接断开了，无法发送请求"}
+            logger.error(f"无法调用 Napcat API '{action}': WebSocket 连接不可用。")
+            # 返回一个符合预期的错误结构
+            return {
+                "status": "error",
+                "retcode": -1,
+                "message": "Adapter not connected to Napcat",
+            }
+
         request_uuid = str(uuid.uuid4())
         payload = {"action": action, "params": params, "echo": request_uuid}
-        await self.server_connection.send(json.dumps(payload))
+
         try:
+            await self.server_connection.send(json.dumps(payload))
+            # 使用 message_queue 中的工具等待响应
             return await get_napcat_api_response(request_uuid, timeout_seconds=30.0)
         except asyncio.TimeoutError:
             logger.warning(f"调用 Napcat API '{action}' 超时。")
             return {"status": "error", "message": f"调用 Napcat API '{action}' 超时"}
+        except websockets.ConnectionClosed:
+            logger.error(f"调用 Napcat API '{action}' 时连接已关闭。")
+            return {
+                "status": "error",
+                "retcode": -2,
+                "message": "Connection closed while sending request",
+            }
+        except Exception as e:
+            logger.error(f"发送请求到 Napcat 时发生未知错误: {e}", exc_info=True)
+            return {"status": "error", "retcode": -3, "message": f"Unknown error: {e}"}
 
 
 # 全局实例

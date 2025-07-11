@@ -1,70 +1,26 @@
 # aicarus_napcat_adapter/src/utils.py
-# Adapter 项目专属的工具函数，主要用于与 Napcat API 交互
-from typing import Dict, Any, Optional, Union, List
+# Adapter 项目专属的工具函数，现在是名副其实的“神之手”工具箱！
+from typing import Dict, Any, Optional, List
 import asyncio
 import json
 import uuid
 import aiohttp
 import ssl
 import base64
-import io
-from PIL import Image  # 用于图片格式处理
 
-# 从同级目录导入
-try:
-    from .logger import logger
-
-    # get_napcat_api_response 和 put_napcat_api_response 现在由 message_queue.py 提供
-    from .message_queue import get_napcat_api_response
-except ImportError:
-
-    class FallbackLogger:
-        def info(self, msg: str):
-            print(f"INFO (utils.py): {msg}")
-
-        def warning(self, msg: str):
-            print(f"WARNING (utils.py): {msg}")
-
-        def error(self, msg: str):
-            print(f"ERROR (utils.py): {msg}")
-
-        def debug(self, msg: str):
-            print(f"DEBUG (utils.py): {msg}")
-
-    logger = FallbackLogger()  # type: ignore
-
-    async def get_napcat_api_response(
-        echo_id: str, timeout_seconds: Optional[float] = None
-    ) -> Any:  # type: ignore
-        logger.warning("get_napcat_api_response fallback used in utils.py")
-        await asyncio.sleep(1)
-        return {"status": "error", "message": "Fallback response from utils.py"}
+from .logger import logger
+from .message_queue import get_napcat_api_response
+from aicarus_protocols import ConversationType  # 导入会话类型常量
 
 
 # --- Napcat API 调用辅助函数 ---
-# 注意：所有这些函数都需要一个已建立的 WebSocket 连接 (server_connection) 作为参数
-
-
 async def _call_napcat_api(
-    server_connection: Any,  # 类型应为 websockets.server.WebSocketServerProtocol，但避免循环导入
+    server_connection: Any,
     action: str,
     params: Dict[str, Any],
-    timeout_seconds: float = 15.0,  # 为API调用设置一个默认超时
+    timeout_seconds: float = 15.0,
 ) -> Optional[Dict[str, Any]]:
-    """
-    通用的 Napcat API 调用函数。
-
-    Args:
-        server_connection: 与 Napcat 客户端的 WebSocket 连接。
-        action (str): 要调用的 Napcat action 名称。
-        params (Dict[str, Any]): action 所需的参数。
-        timeout_seconds (float): 等待响应的超时时间。
-
-    Returns:
-        Optional[Dict[str, Any]]: Napcat 返回的响应数据中的 "data" 字段，如果成功且有数据。
-                                    如果API调用失败、超时或响应格式不正确，则返回 None。
-                                    如果API调用成功但没有 "data" 字段，会返回一个空字典 {}。
-    """
+    """通用的 Napcat API 调用函数。现在它是所有神之手的力量源泉！"""
     if not server_connection or server_connection.closed:
         logger.error(f"无法调用 Napcat API '{action}': WebSocket 连接不可用或已关闭。")
         return None
@@ -77,17 +33,14 @@ async def _call_napcat_api(
             f"向 Napcat 发送 API 请求: action='{action}', params={params}, echo='{request_echo_id}'"
         )
         await server_connection.send(json.dumps(payload))
-
-        # 等待响应
         response_data = await get_napcat_api_response(
             request_echo_id, timeout_seconds=timeout_seconds
         )
 
         if response_data and response_data.get("status") == "ok":
             logger.debug(
-                f"Napcat API '{action}' (echo: {request_echo_id}) 调用成功。响应: {response_data.get('data')}"
+                f"Napcat API '{action}' 调用成功。响应: {response_data.get('data')}"
             )
-            # 即使 data 字段不存在，也返回一个空字典表示成功
             return (
                 response_data.get("data")
                 if response_data.get("data") is not None
@@ -101,66 +54,401 @@ async def _call_napcat_api(
             )
             retcode = response_data.get("retcode", "N/A") if response_data else "N/A"
             logger.warning(
-                f"Napcat API '{action}' (echo: {request_echo_id}) 调用失败或返回错误状态。Status: {response_data.get('status')}, Retcode: {retcode}, Message: {error_msg}"
+                f"Napcat API '{action}' 调用失败。Status: {response_data.get('status')}, Retcode: {retcode}, Message: {error_msg}"
             )
             return None
-
     except asyncio.TimeoutError:
-        logger.error(
-            f"调用 Napcat API '{action}' (echo: {request_echo_id}) 超时 ({timeout_seconds}s)。"
-        )
+        logger.error(f"调用 Napcat API '{action}' 超时 ({timeout_seconds}s)。")
         return None
     except Exception as e:
-        logger.error(
-            f"调用 Napcat API '{action}' (echo: {request_echo_id}) 时发生异常: {e}",
-            exc_info=True,
-        )
+        logger.error(f"调用 Napcat API '{action}' 时发生异常: {e}", exc_info=True)
         return None
 
 
-async def napcat_get_self_info(server_connection: Any) -> Optional[Dict[str, Any]]:
-    """获取机器人自身信息。"""
+# ==============================================================================
+#  开始锻造！为 ACTION_MAPPING 中的每一个动作都赋予实体！
+# ==============================================================================
+
+
+# --- 信息获取类 ---
+async def napcat_get_self_info(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
     return await _call_napcat_api(server_connection, "get_login_info", {})
 
 
 async def napcat_get_group_info(
-    server_connection: Any, group_id: Union[str, int]
+    server_connection: Any, **kwargs
 ) -> Optional[Dict[str, Any]]:
-    """获取群组信息。"""
     return await _call_napcat_api(
-        server_connection, "get_group_info", {"group_id": int(group_id)}
+        server_connection, "get_group_info", {"group_id": int(kwargs["group_id"])}
     )
 
 
 async def napcat_get_member_info(
-    server_connection: Any,
-    group_id: Union[str, int],
-    user_id: Union[str, int],
-    no_cache: bool = False,
+    server_connection: Any, **kwargs
 ) -> Optional[Dict[str, Any]]:
-    """获取群成员信息。"""
-    params = {"group_id": int(group_id), "user_id": int(user_id), "no_cache": no_cache}
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "user_id": int(kwargs["user_id"]),
+        "no_cache": kwargs.get("no_cache", False),
+    }
     return await _call_napcat_api(server_connection, "get_group_member_info", params)
 
 
 async def napcat_get_stranger_info(
-    server_connection: Any, user_id: Union[str, int], no_cache: bool = False
+    server_connection: Any, **kwargs
 ) -> Optional[Dict[str, Any]]:
-    """获取陌生人信息。"""
-    params = {"user_id": int(user_id), "no_cache": no_cache}
+    params = {
+        "user_id": int(kwargs["user_id"]),
+        "no_cache": kwargs.get("no_cache", False),
+    }
     return await _call_napcat_api(server_connection, "get_stranger_info", params)
 
 
-async def napcat_get_message_detail(
-    server_connection: Any, message_id: Union[str, int]
+async def napcat_get_list(server_connection: Any, **kwargs) -> Optional[Dict[str, Any]]:
+    """获取好友或群列表的统一入口"""
+    list_type = kwargs.get("list_type")
+    if list_type == "friend":
+        return await _call_napcat_api(server_connection, "get_friend_list", {})
+    elif list_type == "group":
+        return await _call_napcat_api(server_connection, "get_group_list", {})
+    logger.warning(f"未知的 get_list 类型: {list_type}")
+    return None
+
+
+async def napcat_get_history(
+    server_connection: Any, **kwargs
 ) -> Optional[Dict[str, Any]]:
-    """获取单条消息的详细信息。"""
-    # Napcat 的消息 ID 通常是整数，但协议中可能是字符串，这里统一转为字符串以匹配 API 可能的预期
+    """获取历史消息的统一入口"""
+    conv_id = kwargs["conversation_id"]
+    conv_type = kwargs["conversation_type"]
+    params: Dict[str, Any] = {"count": kwargs.get("count", 20)}
+    if "message_seq" in kwargs:
+        params["message_seq"] = kwargs["message_seq"]
+
+    if conv_type == ConversationType.GROUP:
+        params["group_id"] = int(conv_id)
+        return await _call_napcat_api(
+            server_connection, "get_group_msg_history", params, timeout_seconds=30
+        )
+    elif conv_type == ConversationType.PRIVATE:
+        params["user_id"] = int(conv_id)
+        return await _call_napcat_api(
+            server_connection, "get_friend_msg_history", params, timeout_seconds=30
+        )
+    return None
+
+
+# --- 群组管理类 ---
+async def napcat_set_group_kick(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "user_id": int(kwargs["user_id"]),
+        "reject_add_request": kwargs.get("reject_add_request", False),
+    }
+    return await _call_napcat_api(server_connection, "set_group_kick", params)
+
+
+async def napcat_set_group_ban(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "user_id": int(kwargs["user_id"]),
+        "duration": kwargs.get("duration", 1800),
+    }
+    return await _call_napcat_api(server_connection, "set_group_ban", params)
+
+
+async def napcat_set_group_whole_ban(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {"group_id": int(kwargs["group_id"]), "enable": kwargs["enable"]}
+    return await _call_napcat_api(server_connection, "set_group_whole_ban", params)
+
+
+async def napcat_set_group_card(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "user_id": int(kwargs["user_id"]),
+        "card": kwargs.get("card", ""),
+    }
+    return await _call_napcat_api(server_connection, "set_group_card", params)
+
+
+async def napcat_set_group_special_title(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "user_id": int(kwargs["user_id"]),
+        "special_title": kwargs.get("special_title", ""),
+        "duration": kwargs.get("duration", -1),
+    }
+    return await _call_napcat_api(server_connection, "set_group_special_title", params)
+
+
+async def napcat_set_group_leave(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "is_dismiss": kwargs.get("is_dismiss", False),
+    }
+    return await _call_napcat_api(server_connection, "set_group_leave", params)
+
+
+async def napcat_set_group_admin(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "user_id": int(kwargs["user_id"]),
+        "enable": kwargs.get("enable", True),
+    }
+    return await _call_napcat_api(server_connection, "set_group_admin", params)
+
+
+async def napcat_set_group_name(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {"group_id": int(kwargs["group_id"]), "group_name": kwargs["group_name"]}
+    return await _call_napcat_api(server_connection, "set_group_name", params)
+
+
+# --- 消息操作类 ---
+async def napcat_delete_msg(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
     return await _call_napcat_api(
-        server_connection, "get_msg", {"message_id": str(message_id)}
+        server_connection, "delete_msg", {"message_id": int(kwargs["message_id"])}
     )
 
 
+async def napcat_send_poke(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    """统一的戳一戳入口"""
+    params: Dict[str, Any] = {"user_id": int(kwargs["user_id"])}
+    action = "friend_poke"
+    if "group_id" in kwargs and kwargs["group_id"]:
+        params["group_id"] = int(kwargs["group_id"])
+        action = "group_poke"
+    return await _call_napcat_api(server_connection, action, params)
+
+
+async def napcat_set_msg_emoji_like(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {"message_id": int(kwargs["message_id"]), "emoji_id": kwargs["emoji_id"]}
+    return await _call_napcat_api(server_connection, "set_msg_emoji_like", params)
+
+
+async def napcat_forward_single_msg(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    """转发单条消息的统一入口"""
+    target_id = kwargs["target_id"]
+    target_type = kwargs["target_type"]
+    message_id = kwargs["message_id"]
+
+    if target_type == ConversationType.GROUP:
+        params = {"group_id": int(target_id), "message_id": int(message_id)}
+        return await _call_napcat_api(
+            server_connection, "forward_group_single_msg", params
+        )
+    elif target_type == ConversationType.PRIVATE:
+        params = {"user_id": int(target_id), "message_id": int(message_id)}
+        return await _call_napcat_api(
+            server_connection, "forward_friend_single_msg", params
+        )
+    return None
+
+
+# --- 请求处理类 ---
+async def napcat_set_friend_add_request(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "flag": kwargs["flag"],
+        "approve": kwargs["approve"],
+        "remark": kwargs.get("remark", ""),
+    }
+    return await _call_napcat_api(server_connection, "set_friend_add_request", params)
+
+
+async def napcat_set_group_add_request(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "flag": kwargs["flag"],
+        "sub_type": kwargs["sub_type"],
+        "approve": kwargs["approve"],
+        "reason": kwargs.get("reason", ""),
+    }
+    return await _call_napcat_api(server_connection, "set_group_add_request", params)
+
+
+# --- 文件操作类 ---
+async def napcat_upload_group_file(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params: Dict[str, Any] = {
+        "group_id": int(kwargs["group_id"]),
+        "file": kwargs["file"],
+        "name": kwargs["name"],
+    }
+    if "folder" in kwargs and kwargs["folder"]:
+        params["folder"] = kwargs["folder"]
+    return await _call_napcat_api(
+        server_connection, "upload_group_file", params, timeout_seconds=300
+    )
+
+
+async def napcat_delete_group_file(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "file_id": kwargs["file_id"],
+        "busid": int(kwargs["busid"]),
+    }
+    return await _call_napcat_api(server_connection, "delete_group_file", params)
+
+
+async def napcat_create_group_file_folder(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "name": kwargs["name"],
+        "parent_id": "/",
+    }
+    return await _call_napcat_api(server_connection, "create_group_file_folder", params)
+
+
+async def napcat_delete_group_folder(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {"group_id": int(kwargs["group_id"]), "folder_id": kwargs["folder_id"]}
+    return await _call_napcat_api(server_connection, "delete_group_folder", params)
+
+
+async def napcat_get_group_files_by_folder(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {"group_id": int(kwargs["group_id"])}
+    if "folder_id" in kwargs and kwargs["folder_id"]:
+        params["folder_id"] = kwargs["folder_id"]
+        return await _call_napcat_api(
+            server_connection, "get_group_files_by_folder", params
+        )
+    return await _call_napcat_api(server_connection, "get_group_root_files", params)
+
+
+async def napcat_get_group_file_url(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "file_id": kwargs["file_id"],
+        "busid": int(kwargs["busid"]),
+    }
+    return await _call_napcat_api(server_connection, "get_group_file_url", params)
+
+
+# --- 其他功能类 ---
+async def napcat_set_group_sign(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    return await _call_napcat_api(
+        server_connection, "set_group_sign", {"group_id": int(kwargs["group_id"])}
+    )
+
+
+async def napcat_set_online_status(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "status": int(kwargs["status"]),
+        "ext_status": int(kwargs.get("ext_status", 0)),
+        "battery_status": int(kwargs.get("battery_status", 100)),
+    }
+    return await _call_napcat_api(server_connection, "set_online_status", params)
+
+
+async def napcat_set_qq_avatar(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    return await _call_napcat_api(
+        server_connection, "set_qq_avatar", {"file": kwargs["file"]}
+    )
+
+
+async def napcat_get_group_honor_info(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {"group_id": int(kwargs["group_id"]), "type": kwargs.get("type", "all")}
+    return await _call_napcat_api(server_connection, "get_group_honor_info", params)
+
+
+async def napcat_send_group_notice(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params: Dict[str, Any] = {
+        "group_id": int(kwargs["group_id"]),
+        "content": kwargs["content"],
+    }
+    if "image" in kwargs and kwargs["image"]:
+        params["image"] = kwargs["image"]
+    return await _call_napcat_api(
+        server_connection, "_send_group_notice", params
+    )  # 注意gocq的下划线
+
+
+async def napcat_get_group_notice(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    return await _call_napcat_api(
+        server_connection, "_get_group_notice", {"group_id": int(kwargs["group_id"])}
+    )
+
+
+async def napcat_get_recent_contact(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {"count": kwargs.get("count", 20)}
+    return await _call_napcat_api(server_connection, "get_recent_contact", params)
+
+
+async def napcat_get_ai_characters(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {"group_id": int(kwargs["group_id"])}
+    return await _call_napcat_api(server_connection, "get_ai_characters", params)
+
+
+async def napcat_send_group_ai_record(
+    server_connection: Any, **kwargs
+) -> Optional[Dict[str, Any]]:
+    params = {
+        "group_id": int(kwargs["group_id"]),
+        "character": kwargs["character"],
+        "text": kwargs["text"],
+    }
+    return await _call_napcat_api(server_connection, "send_group_ai_record", params)
+
+
+# ==============================================================================
+#  啊哈！失落的咒语，我找到你了！(•̀ω•́)✧
+#  这个函数是 recv_handler 在解析收到的合并转发消息时需要用到的，
+#  不属于 action 调用，但也是我们神之手工具箱里重要的一员！
+# ==============================================================================
 async def napcat_get_forward_msg_content(
     server_connection: Any, forward_msg_id: str
 ) -> Optional[List[Dict[str, Any]]]:
@@ -170,145 +458,17 @@ async def napcat_get_forward_msg_content(
     )
     if data and isinstance(data.get("messages"), list):
         return data["messages"]
-    elif data:  # 如果返回了 data 但 messages 不是列表或不存在
+    elif data:
         logger.warning(
             f"获取合并转发消息 (id: {forward_msg_id}) 内容时，返回的 'messages' 字段格式不正确: {data.get('messages')}"
         )
     return None
 
 
-async def napcat_get_group_list(
-    server_connection: Any,
-) -> Optional[List[Dict[str, Any]]]:
-    """
-    获取机器人加入的群聊列表。
-    返回的列表中每个元素包含群 ID、名称等信息。
-    """
-    return await _call_napcat_api(server_connection, "get_group_list", {})
-
-
-async def napcat_get_friend_list(
-    server_connection: Any,
-) -> Optional[List[Dict[str, Any]]]:
-    """获取机器人好友列表。"""
-    return await _call_napcat_api(server_connection, "get_friend_list", {})
-
-
-# --- 我新加的几个 API 调用函数，哼 ---
-
-
-async def napcat_set_group_sign(
-    server_connection: Any, group_id: Union[str, int]
-) -> Optional[Dict[str, Any]]:
-    """群签到。"""
-    return await _call_napcat_api(
-        server_connection, "set_group_sign", {"group_id": int(group_id)}
-    )
-
-
-async def napcat_set_online_status(
-    server_connection: Any, status: int, ext_status: int, battery_status: int
-) -> Optional[Dict[str, Any]]:
-    """设置在线状态。"""
-    params = {
-        "status": status,
-        "ext_status": ext_status,
-        "battery_status": battery_status,
-    }
-    return await _call_napcat_api(server_connection, "set_online_status", params)
-
-
-async def napcat_set_qq_avatar(
-    server_connection: Any, file: str
-) -> Optional[Dict[str, Any]]:
-    """设置QQ头像。"""
-    return await _call_napcat_api(server_connection, "set_qq_avatar", {"file": file})
-
-
-async def napcat_get_friend_msg_history(
-    server_connection: Any,
-    user_id: Union[str, int],
-    message_seq: Optional[Union[str, int]] = None,
-    count: int = 20,
-) -> Optional[List[Dict[str, Any]]]:
-    """获取私聊历史记录。"""
-    params: Dict[str, Any] = {"user_id": int(user_id), "count": count}
-    if message_seq is not None:
-        params["message_seq"] = str(message_seq)
-
-    data = await _call_napcat_api(
-        server_connection, "get_friend_msg_history", params, timeout_seconds=30
-    )
-    if data and isinstance(data.get("messages"), list):
-        return data["messages"]
-    return None
-
-
-async def napcat_forward_friend_single_msg(
-    server_connection: Any, user_id: Union[str, int], message_id: Union[str, int]
-) -> Optional[Dict[str, Any]]:
-    """转发单条消息给好友，哼。"""
-    params = {"user_id": int(user_id), "message_id": int(message_id)}
-    return await _call_napcat_api(
-        server_connection, "forward_friend_single_msg", params
-    )
-
-
-async def napcat_forward_group_single_msg(
-    server_connection: Any, group_id: Union[str, int], message_id: Union[str, int]
-) -> Optional[Dict[str, Any]]:
-    """转发单条消息到群里，啧。"""
-    params = {"group_id": int(group_id), "message_id": int(message_id)}
-    return await _call_napcat_api(server_connection, "forward_group_single_msg", params)
-
-
-async def napcat_get_group_msg_history(
-    server_connection: Any,
-    group_id: Union[str, int],
-    message_seq: Optional[Union[str, int]] = None,
-    count: int = 20,
-) -> Optional[List[Dict[str, Any]]]:
-    """获取群消息历史记录。"""
-    params: Dict[str, Any] = {"group_id": int(group_id), "count": count}
-    if message_seq is not None:
-        params["message_seq"] = int(message_seq)  # gocq-api 文档说是 int64
-
-    data = await _call_napcat_api(
-        server_connection, "get_group_msg_history", params, timeout_seconds=30
-    )
-    if data and isinstance(data.get("messages"), list):
-        return data["messages"]
-    return None
-
-
-async def napcat_set_group_admin(
-    server_connection: Any,
-    group_id: Union[str, int],
-    user_id: Union[str, int],
-    enable: bool = True,
-) -> Optional[Dict[str, Any]]:
-    """设置或取消群管理员。"""
-    params = {"group_id": int(group_id), "user_id": int(user_id), "enable": enable}
-    return await _call_napcat_api(server_connection, "set_group_admin", params)
-
-
-async def napcat_set_group_name(
-    server_connection: Any, group_id: Union[str, int], group_name: str
-) -> Optional[Dict[str, Any]]:
-    """设置群名，想改啥就改啥。"""
-    params = {"group_id": int(group_id), "group_name": group_name}
-    return await _call_napcat_api(server_connection, "set_group_name", params)
-
-
-# --- 图片处理工具函数 ---
-
-
+# --- 图片处理工具函数 (这部分保持不变) ---
 async def get_image_base64_from_url(url: str, timeout: int = 10) -> Optional[str]:
-    """异步从 URL 下载图片并返回其 Base64 编码。"""
-    # 创建 SSL 上下文以兼容某些服务器
     ssl_context = ssl.create_default_context()
-    ssl_context.set_ciphers("DEFAULT@SECLEVEL=1")  # 有时需要降低安全级别以兼容旧服务器
-
+    ssl_context.set_ciphers("DEFAULT@SECLEVEL=1")
     try:
         async with aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(ssl=ssl_context)
@@ -316,221 +476,10 @@ async def get_image_base64_from_url(url: str, timeout: int = 10) -> Optional[str
             async with session.get(url, timeout=timeout) as response:
                 if response.status == 200:
                     image_bytes = await response.read()
-                    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-                    logger.debug(f"成功下载并编码图片: {url}")
-                    return image_base64
+                    return base64.b64encode(image_bytes).decode("utf-8")
                 else:
                     logger.error(f"下载图片失败 (HTTP {response.status}): {url}")
                     return None
-    except asyncio.TimeoutError:
-        logger.error(f"下载图片超时 (URL: {url}, 超时: {timeout}s)")
-        return None
     except Exception as e:
         logger.error(f"下载或处理图片时发生错误 (URL: {url}): {e}", exc_info=True)
         return None
-
-
-async def napcat_upload_group_file(
-    server_connection: Any,
-    group_id: Union[str, int],
-    file_path: str,
-    file_name: str,
-    folder_id: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
-    """上传群文件，哼，别传太大的东西，我懒得等。"""
-    params = {
-        "group_id": int(group_id),
-        "file": file_path,
-        "name": file_name,
-    }
-    if folder_id:
-        params["folder"] = folder_id
-    # 上传文件可能很慢，超时时间给长一点
-    return await _call_napcat_api(
-        server_connection, "upload_group_file", params, timeout_seconds=300
-    )
-
-
-async def napcat_delete_group_file(
-    server_connection: Any, group_id: Union[str, int], file_id: str, busid: int
-) -> Optional[Dict[str, Any]]:
-    """删除群文件，拜拜了您内！"""
-    params = {"group_id": int(group_id), "file_id": file_id, "busid": busid}
-    return await _call_napcat_api(server_connection, "delete_group_file", params)
-
-
-async def napcat_delete_group_folder(
-    server_connection: Any, group_id: Union[str, int], folder_id: str
-) -> Optional[Dict[str, Any]]:
-    """删除群文件夹，整个文件夹都消失吧！"""
-    params = {"group_id": int(group_id), "folder_id": folder_id}
-    return await _call_napcat_api(server_connection, "delete_group_folder", params)
-
-
-async def napcat_create_group_file_folder(
-    server_connection: Any, group_id: Union[str, int], folder_name: str
-) -> Optional[Dict[str, Any]]:
-    """创建群文件夹，只能在根目录创建，真是死板。"""
-    params = {"group_id": int(group_id), "name": folder_name, "parent_id": "/"}
-    return await _call_napcat_api(server_connection, "create_group_file_folder", params)
-
-
-async def napcat_get_group_files_by_folder(
-    server_connection: Any, group_id: Union[str, int], folder_id: str
-) -> Optional[Dict[str, Any]]:
-    """获取指定文件夹下的文件列表。"""
-    params = {"group_id": int(group_id), "folder_id": folder_id}
-    return await _call_napcat_api(
-        server_connection, "get_group_files_by_folder", params
-    )
-
-
-async def napcat_get_group_root_files(
-    server_connection: Any, group_id: Union[str, int]
-) -> Optional[Dict[str, Any]]:
-    """获取群根目录的文件列表。"""
-    params = {"group_id": int(group_id)}
-    return await _call_napcat_api(server_connection, "get_group_root_files", params)
-
-
-async def napcat_get_group_file_url(
-    server_connection: Any, group_id: Union[str, int], file_id: str, busid: int
-) -> Optional[Dict[str, Any]]:
-    """获取群文件的下载链接。"""
-    params = {"group_id": int(group_id), "file_id": file_id, "busid": busid}
-    return await _call_napcat_api(server_connection, "get_group_file_url", params)
-
-
-async def napcat_get_group_honor_info(
-    server_connection: Any, group_id: Union[str, int], honor_type: str
-) -> Optional[Dict[str, Any]]:
-    """让你看看谁是龙王，中二！"""
-    params = {"group_id": int(group_id), "type": honor_type}
-    return await _call_napcat_api(server_connection, "get_group_honor_info", params)
-
-
-async def napcat_send_group_notice(
-    server_connection: Any,
-    group_id: Union[str, int],
-    content: str,
-    image: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
-    """发公告，好麻烦。"""
-    params: Dict[str, Any] = {"group_id": int(group_id), "content": content}
-    if image:
-        params["image"] = image
-    return await _call_napcat_api(server_connection, "_send_group_notice", params)
-
-
-async def napcat_get_group_notice(
-    server_connection: Any, group_id: Union[str, int]
-) -> Optional[List[Dict[str, Any]]]:
-    """获取公告，你自己看吧。"""
-    return await _call_napcat_api(
-        server_connection, "_get_group_notice", params={"group_id": int(group_id)}
-    )
-
-
-async def napcat_set_msg_emoji_like(
-    server_connection: Any, message_id: Union[str, int], emoji_id: str
-) -> Optional[Dict[str, Any]]:
-    """用表情给消息点赞，花里胡哨的。"""
-    params = {"message_id": int(message_id), "emoji_id": emoji_id}
-    return await _call_napcat_api(server_connection, "set_msg_emoji_like", params)
-
-
-async def napcat_get_recent_contact(
-    server_connection: Any, count: int = 20
-) -> Optional[List[Dict[str, Any]]]:
-    """获取最近联系人，你想干嘛？"""
-    return await _call_napcat_api(
-        server_connection, "get_recent_contact", params={"count": count}
-    )
-
-
-async def napcat_get_ai_characters(
-    server_connection: Any, group_id: Union[str, int]
-) -> Optional[List[Dict[str, Any]]]:
-    """获取AI声优列表，让你挑个够。"""
-    params = {"group_id": int(group_id)}
-    # 根据文档，这个API的响应直接就是列表，所以我们直接返回
-    return await _call_napcat_api(server_connection, "get_ai_characters", params)
-
-
-async def napcat_send_group_ai_record(
-    server_connection: Any, group_id: Union[str, int], character_id: str, text: str
-) -> Optional[Dict[str, Any]]:
-    """让AI替你说话，懒死你算了。"""
-    params = {
-        "group_id": int(group_id),
-        "character": character_id,
-        "text": text,
-    }
-    return await _call_napcat_api(server_connection, "send_group_ai_record", params)
-
-
-def get_image_format_from_base64(base64_data: str) -> Optional[str]:
-    """从 Base64 编码的图像数据中尝试确定图像格式。"""
-    try:
-        image_bytes = base64.b64decode(base64_data)
-        image = Image.open(io.BytesIO(image_bytes))
-        return image.format.lower() if image.format else None
-    except Exception as e:
-        logger.error(f"确定图像格式时发生错误: {e}")
-        return None
-
-
-def convert_image_to_gif_base64(image_base64: str) -> Optional[str]:
-    """将 Base64 编码的图片转换为 GIF 格式的 Base64 编码。"""
-    try:
-        image_bytes = base64.b64decode(image_base64)
-        image = Image.open(io.BytesIO(image_bytes))
-
-        # 转换为 GIF 格式
-        output_buffer = io.BytesIO()
-        image.save(output_buffer, format="GIF")
-        gif_bytes = output_buffer.getvalue()
-
-        # 转换为 Base64
-        gif_base64 = base64.b64encode(gif_bytes).decode("utf-8")
-        return gif_base64
-    except Exception as e:
-        logger.error(f"转换图片为 GIF 格式时发生错误: {e}")
-        return None
-
-
-if __name__ == "__main__":
-    # utils.py 的测试通常需要一个运行中的 Napcat 实例和 WebSocket 连接
-    # 这里可以放一些不依赖外部连接的单元测试，例如图片格式转换
-
-    async def test_image_conversion():
-        logger.info("--- 测试图片处理工具 ---")
-        # 你需要一个有效的图片 base64 字符串来进行测试
-        # 例如，一个简单的 PNG base64:
-        test_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="  # 1x1 red pixel png
-
-        fmt = get_image_format_from_base64(test_png_b64)
-        logger.info(f"测试 PNG 的格式: {fmt}")  # 应该输出 png
-        assert fmt == "png"
-
-        gif_b64 = convert_image_to_gif_base64(test_png_b64)
-        if gif_b64:
-            logger.info("PNG 已转换为 GIF (Base64 长度可能变化)")
-            gif_fmt = get_image_format_from_base64(gif_b64)
-            logger.info(f"转换后的 GIF 格式: {gif_fmt}")  # 应该输出 gif
-            assert gif_fmt == "gif"
-        else:
-            logger.error("PNG 转换为 GIF 失败。")
-
-        # 测试 URL 下载 (需要网络连接)
-        # test_url = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"
-        # logger.info(f"正在尝试从 URL 下载图片: {test_url}")
-        # url_img_b64 = await get_image_base64_from_url(test_url)
-        # if url_img_b64:
-        #     logger.success(f"成功从 URL 下载图片并编码为 Base64 (长度: {len(url_img_b64[:50])}... )")
-        #     url_img_fmt = get_image_format_from_base64(url_img_b64)
-        #     logger.info(f"URL 图片格式: {url_img_fmt}")
-        # else:
-        #     logger.error("从 URL 下载图片失败。")
-
-    asyncio.run(test_image_conversion())
