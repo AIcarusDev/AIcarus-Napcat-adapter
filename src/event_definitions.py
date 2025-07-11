@@ -242,7 +242,7 @@ class NoticeEventFactory(BaseEventFactory):
                 "ban_type": "ban" if duration > 0 else "lift_ban",
             }
 
-        elif notice_type == NoticeType.group_recall or notice_type == NoticeType.friend_recall:
+        elif notice_type in [NoticeType.group_recall, NoticeType.friend_recall]:
             event_type_suffix = "message.recalled"
             operator = (
                 await recv_handler._napcat_to_aicarus_userinfo(
