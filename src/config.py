@@ -1,43 +1,22 @@
 # aicarus_napcat_adapter/src/config.py
 # Adapter 项目专属的配置模块，使用 tomlkit，并包含版本管理
 
-import os
-import sys  # 用于 sys.exit()
-import shutil  # 用于文件复制和移动
-import tomlkit
 import datetime  # 用于生成备份文件名
+import os
+import shutil  # 用于文件复制和移动
+import sys  # 用于 sys.exit()
 from pathlib import Path
-from typing import Any, Optional, Dict, Union  # Union 用于 tomlkit 的类型提示
+from typing import Any  # Union 用于 tomlkit 的类型提示
 
-try:
-    from .logger import logger
-except ImportError:
+import tomlkit
 
-    class FallbackLogger:
-        def info(self, msg: str):
-            print(f"INFO (config.py): {msg}")
-
-        def warning(self, msg: str):
-            print(f"WARNING (config.py): {msg}")
-
-        def error(self, msg: str):
-            print(f"ERROR (config.py): {msg}")
-
-        def critical(self, msg: str):
-            print(f"CRITICAL (config.py): {msg}")
-
-        def exception(self, msg: str):
-            print(f"EXCEPTION (config.py): {msg}")
-
-    logger = FallbackLogger()  # type: ignore
+from .logger import logger
 
 # --- 路径定义 ---
 # 项目根目录 (假设 config.py 在 src/ 下，run_adapter.py 在项目根)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = PROJECT_ROOT / "config"  # 运行时配置文件目录 (可选，可以直接放根目录)
-TEMPLATE_CONFIG_PATH = (
-    PROJECT_ROOT / "template" / "config_template.toml"
-)  # 模板文件路径
+TEMPLATE_CONFIG_PATH = PROJECT_ROOT / "template" / "config_template.toml"  # 模板文件路径
 ACTUAL_CONFIG_PATH = PROJECT_ROOT / "config.toml"  # 实际使用的配置文件路径
 BACKUP_DIR = PROJECT_ROOT / "config_backups"  # 旧配置文件备份目录
 
@@ -48,6 +27,8 @@ BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- 配置数据类 ---
 class AdapterConfigData:
+    """Adapter 的配置数据类，使用 tomlkit 解析和存储配置."""
+
     config_version: str = "0.0.0"  # 用于存储从实际配置文件中读取的版本号
     adapter_server_host: str = "0.0.0.0"
     adapter_server_port: int = 8095
@@ -57,9 +38,8 @@ class AdapterConfigData:
     force_self_id: str = ""  # 新增: 强制指定的机器人QQ号
     napcat_heartbeat_interval_seconds: int = 30
 
-    def __init__(
-        self, data: Union[Dict[str, Any], tomlkit.TOMLDocument]
-    ):  # 接受字典或TOMLDocument
+    def __init__(self, data: dict[str, Any] | tomlkit.TOMLDocument) -> None:
+        """初始化 AdapterConfigData 实例，读取配置数据并设置类属性."""
         # 从 data 中读取配置，如果键不存在，则使用类属性中定义的默认值
         self.config_version = str(data.get("config_version", self.config_version))
 
@@ -96,17 +76,17 @@ class AdapterConfigData:
         # self.new_setting = str(new_section.get("new_setting", "default_value_if_not_in_class"))
 
 
-_global_config_instance: Optional[AdapterConfigData] = None
+_global_config_instance: AdapterConfigData | None = None
 
 
 def _merge_toml_data(
     new_data: tomlkit.TOMLDocument, old_data: tomlkit.TOMLDocument
 ) -> tomlkit.TOMLDocument:
-    """
-    将旧配置 (old_data) 中的值合并到新配置模板 (new_data) 中。
+    """将旧配置 (old_data) 中的值合并到新配置模板 (new_data) 中.
+
     new_data 作为基础结构，old_data 中的同名键值会覆盖 new_data 中的值，
-    除非该键在 new_data 中不存在（表示模板中已移除该项）。
-    特别处理 config_version，始终使用 new_data (模板) 的版本。
+    除非该键在 new_data 中不存在（表示模板中已移除该项）.
+    特别处理 config_version，始终使用 new_data (模板) 的版本.
     """
     logger.info("正在尝试合并旧的配置值到新的配置模板...")
 
@@ -125,27 +105,24 @@ def _merge_toml_data(
                 new_item, tomlkit.items.Table
             ):
                 logger.debug(f"  递归合并配置段: [{key}]")
-                # 注意：tomlkit 的 Table 不是直接的 dict，需要转换为 dict 再递归，或实现 Table 的递归合并
+                # 注意：tomlkit 的 Table 不是直接的 dict，需要转换为 dict 再递归，
+                # 或实现 Table 的递归合并
                 # 为了简单起见，这里只做一层覆盖，如果深层结构变化复杂，可能需要更精细的合并逻辑
                 # 或者，更简单的方式是，如果旧配置中存在，就用旧的整个表覆盖新的（如果表结构没大变）
                 # 这里我们采用更保守的策略：如果新模板中有这个表，就用旧表中的同名键去覆盖新表中的键
                 for sub_key in old_item:
                     if sub_key in new_item:
-                        if isinstance(
-                            old_item[sub_key], type(new_item[sub_key])
-                        ):  # 类型相同才覆盖
+                        if isinstance(old_item[sub_key], type(new_item[sub_key])):  # 类型相同才覆盖
                             new_item[sub_key] = old_item[sub_key]
-                            logger.debug(
-                                f"    合并值: [{key}].{sub_key} = {old_item[sub_key]}"
-                            )
+                            logger.debug(f"    合并值: [{key}].{sub_key} = {old_item[sub_key]}")
                         else:
                             logger.warning(
-                                f"    跳过合并: [{key}].{sub_key} 类型不匹配 (旧: {type(old_item[sub_key])}, 新: {type(new_item[sub_key])})。保留模板值。"
+                                f"    跳过合并: [{key}].{sub_key} 类型不匹配 "
+                                f"(旧: {type(old_item[sub_key])}, "
+                                f"新: {type(new_item[sub_key])})。保留模板值。"
                             )
                     else:
-                        logger.info(
-                            f"    旧配置项 [{key}].{sub_key} 在新模板中不存在，已忽略。"
-                        )
+                        logger.info(f"    旧配置项 [{key}].{sub_key} 在新模板中不存在，已忽略。")
             # 如果不是表，且类型相同，则用旧值覆盖 (简单值或数组)
             elif isinstance(old_item, type(new_item)):
                 new_data[key] = old_item
@@ -153,7 +130,8 @@ def _merge_toml_data(
             else:
                 # 类型不同，保留新模板的值和结构
                 logger.warning(
-                    f"  跳过合并: 键 '{key}' 类型不匹配 (旧: {type(old_item)}, 新: {type(new_item)})。保留模板值。"
+                    f"  跳过合并: 键 '{key}' 类型不匹配 (旧: {type(old_item)}, "
+                    f"新: {type(new_item)})。保留模板值。"
                 )
         else:
             # 旧配置中的键在新模板中不存在，说明该配置项可能已被废弃
@@ -163,23 +141,19 @@ def _merge_toml_data(
 
 
 def _handle_config_file_and_version() -> bool:
-    """
-    处理配置文件的存在性、版本检查和更新。
-    返回 True 如果配置文件被创建或更新，提示用户检查并退出。
-    返回 False 如果配置文件无需更改，程序可以继续。
+    """处理配置文件的存在性、版本检查和更新.
+
+    返回 True 如果配置文件被创建或更新，提示用户检查并退出.
+    返回 False 如果配置文件无需更改，程序可以继续.
     """
     if not TEMPLATE_CONFIG_PATH.exists():
-        logger.critical(
-            f"错误：配置文件模板 {TEMPLATE_CONFIG_PATH} 未找到！程序无法继续。"
-        )
+        logger.critical(f"错误：配置文件模板 {TEMPLATE_CONFIG_PATH} 未找到！程序无法继续。")
         sys.exit(1)  # 模板不存在是致命错误
 
     template_doc = tomlkit.parse(TEMPLATE_CONFIG_PATH.read_text(encoding="utf-8"))
     expected_version = template_doc.get("config_version")
     if not expected_version:
-        logger.critical(
-            f"错误：配置文件模板 {TEMPLATE_CONFIG_PATH} 中缺少 'config_version' 字段！"
-        )
+        logger.critical(f"错误：配置文件模板 {TEMPLATE_CONFIG_PATH} 中缺少 'config_version' 字段！")
         sys.exit(1)
     expected_version = str(expected_version)
 
@@ -202,23 +176,19 @@ def _handle_config_file_and_version() -> bool:
         actual_doc = tomlkit.parse(actual_doc_str)
     except Exception as e:
         logger.error(f"解析现有配置文件 {ACTUAL_CONFIG_PATH} 失败: {e}", exc_info=True)
-        backup_path = (
-            BACKUP_DIR
-            / f"{ACTUAL_CONFIG_PATH.name}_corrupted_{Path.cwd().name}_{os.getpid()}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.toml"
+        backup_path = BACKUP_DIR / (
+            f"{ACTUAL_CONFIG_PATH.name}_corrupted_{Path.cwd().name}_{os.getpid()}_"
+            f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.toml"
         )
         try:
-            shutil.move(
-                str(ACTUAL_CONFIG_PATH), str(backup_path)
-            )  # shutil.move 需要字符串路径
+            shutil.move(str(ACTUAL_CONFIG_PATH), str(backup_path))  # shutil.move 需要字符串路径
             logger.info(f"已备份损坏的配置文件到: {backup_path}")
         except Exception as e_backup:
             logger.error(f"备份损坏的配置文件失败: {e_backup}")
 
         logger.warning("将从模板重新创建配置文件。")
         shutil.copy2(TEMPLATE_CONFIG_PATH, ACTUAL_CONFIG_PATH)
-        config_action_message = (
-            f"现有配置文件 {ACTUAL_CONFIG_PATH} 损坏，已从模板重新创建。"
-        )
+        config_action_message = f"现有配置文件 {ACTUAL_CONFIG_PATH} 损坏，已从模板重新创建。"
         logger.info(config_action_message)
         return True  # 重新创建，需要用户检查
 
@@ -234,39 +204,37 @@ def _handle_config_file_and_version() -> bool:
 
     # 版本不一致，需要更新
     logger.warning(
-        f"配置文件版本 ({actual_version or '未找到'}) 与模板版本 ({expected_version}) 不一致，将进行更新。"
+        f"配置文件版本 ({actual_version or '未找到'}) 与模板版本 ({expected_version}) 不一致，"
+        f"将进行更新。"
     )
 
-    backup_filename = f"{ACTUAL_CONFIG_PATH.name}_backup_v{actual_version or 'unknown'}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.toml"
+    backup_filename = (
+        f"{ACTUAL_CONFIG_PATH.name}_backup_v{actual_version or 'unknown'}_"
+        f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.toml"
+    )
     backup_path = BACKUP_DIR / backup_filename
     try:
         shutil.copy2(ACTUAL_CONFIG_PATH, backup_path)  # 备份旧的
-        logger.info(
-            f"已备份旧的配置文件 (版本: {actual_version or '未知'}) 到: {backup_path}"
-        )
+        logger.info(f"已备份旧的配置文件 (版本: {actual_version or '未知'}) 到: {backup_path}")
     except Exception as e_backup:
-        logger.error(
-            f"备份旧的配置文件失败: {e_backup}。更新将基于内存中的旧配置（如果可用）。"
-        )
+        logger.error(f"备份旧的配置文件失败: {e_backup}。更新将基于内存中的旧配置（如果可用）。")
         # 即使备份失败，我们仍然尝试基于内存中的 actual_doc 进行合并
 
     # 以新模板为基础，合并旧配置的值
-    updated_doc = _merge_toml_data(
-        template_doc.copy(), actual_doc
-    )  # 使用模板的副本进行合并
+    updated_doc = _merge_toml_data(template_doc.copy(), actual_doc)  # 使用模板的副本进行合并
 
     try:
         ACTUAL_CONFIG_PATH.write_text(tomlkit.dumps(updated_doc), encoding="utf-8")
         config_action_message = (
             f"配置文件已从版本 {actual_version or '未知'} 更新到版本 {expected_version}。\n"
-            f"旧的配置文件已备份到: {backup_path if 'backup_path' in locals() and backup_path.exists() else '备份失败'}"
+            f"旧的配置文件已备份到: {
+                backup_path if 'backup_path' in locals() and backup_path.exists() else '备份失败'
+            }"
         )
         logger.info(config_action_message.replace("\n", " "))
         return True  # 更新完成，需要用户检查
     except Exception as e_write:
-        logger.critical(
-            f"写入更新后的配置文件 {ACTUAL_CONFIG_PATH} 失败: {e_write}", exc_info=True
-        )
+        logger.critical(f"写入更新后的配置文件 {ACTUAL_CONFIG_PATH} 失败: {e_write}", exc_info=True)
         logger.critical(
             "程序将使用更新前的配置（如果已加载），或者可能无法正确运行。请检查文件权限和磁盘空间。"
         )
@@ -276,6 +244,7 @@ def _handle_config_file_and_version() -> bool:
 
 
 def load_and_get_config() -> AdapterConfigData:
+    """加载 Adapter 配置文件，如果不存在则创建，处理版本检查和合并."""
     global _global_config_instance
     if _global_config_instance is not None:
         return _global_config_instance
@@ -285,16 +254,12 @@ def load_and_get_config() -> AdapterConfigData:
     should_exit_after_config_action = _handle_config_file_and_version()
 
     if should_exit_after_config_action:
-        logger.info(
-            "--------------------------------------------------------------------"
-        )
+        logger.info("--------------------------------------------------------------------")
         logger.info("重要提示: Adapter 的配置文件已被创建或更新。")
         logger.info(f"请检查位于 '{ACTUAL_CONFIG_PATH.resolve()}' 的配置文件内容,")
         logger.info("特别是新添加或已更改的配置项，确保它们符合您的需求。")
         logger.info("完成检查和必要的修改后，请重新启动 Adapter。")
-        logger.info(
-            "--------------------------------------------------------------------"
-        )
+        logger.info("--------------------------------------------------------------------")
         sys.exit(0)  # 终止程序，让用户检查配置
 
     # --- 如果程序没有退出，说明配置文件存在且版本正确，可以加载 ---
@@ -309,26 +274,20 @@ def load_and_get_config() -> AdapterConfigData:
         logger.info(
             f"  - Adapter Server (监听 Napcat): ws://{_global_config_instance.adapter_server_host}:{_global_config_instance.adapter_server_port}"
         )
-        logger.info(
-            f"  - Core Connection URL: {_global_config_instance.core_connection_url}"
-        )
+        logger.info(f"  - Core Connection URL: {_global_config_instance.core_connection_url}")
         logger.info(f"  - Core Platform ID: {_global_config_instance.core_platform_id}")
         if _global_config_instance.bot_nickname:
             logger.info(f"  - Bot Nickname: '{_global_config_instance.bot_nickname}'")
         else:
             logger.info("  - Bot Nickname: 未设置")
         if _global_config_instance.force_self_id:  # 新增日志
-            logger.info(
-                f"  - Forced Bot Self ID: '{_global_config_instance.force_self_id}'"
-            )
+            logger.info(f"  - Forced Bot Self ID: '{_global_config_instance.force_self_id}'")
         else:
             logger.info("  - Forced Bot Self ID: 未设置 (将自动获取)")
 
         return _global_config_instance
     except tomlkit.exceptions.TOMLKitError as e:
-        logger.critical(
-            f"解析 Adapter 配置文件 {ACTUAL_CONFIG_PATH} 失败: {e}", exc_info=True
-        )
+        logger.critical(f"解析 Adapter 配置文件 {ACTUAL_CONFIG_PATH} 失败: {e}", exc_info=True)
         raise SystemExit(f"配置文件错误，程序无法启动: {e}") from e
     except Exception as e:
         logger.critical(f"加载 Adapter 配置时发生未知错误: {e}", exc_info=True)
@@ -336,6 +295,7 @@ def load_and_get_config() -> AdapterConfigData:
 
 
 def get_config() -> AdapterConfigData:
+    """获取 Adapter 配置实例，如果未加载则加载配置."""
     if _global_config_instance is None:
         return load_and_get_config()
     return _global_config_instance
@@ -357,7 +317,8 @@ if __name__ == "__main__":
         # 如果程序没有因为版本更新而退出，才会执行到这里
         logger.info("配置加载测试成功 (程序未因版本更新而退出)。")
         logger.info(
-            f"Adapter监听地址: {cfg_instance.adapter_server_host}:{cfg_instance.adapter_server_port}"
+            f"Adapter监听地址: {cfg_instance.adapter_server_host}:"
+            f"{cfg_instance.adapter_server_port}"
         )
         logger.info(f"Core WebSocket URL: {cfg_instance.core_connection_url}")
         logger.info(f"Core Platform ID: {cfg_instance.core_platform_id}")
@@ -369,12 +330,8 @@ if __name__ == "__main__":
             logger.info(f"强制 Bot ID: '{cfg_instance.force_self_id}'")
         else:
             logger.info("强制 Bot ID: 未设置")
-        logger.info(
-            f"Napcat 心跳间隔: {cfg_instance.napcat_heartbeat_interval_seconds} 秒"
-        )
-        logger.info(
-            f"通过 global_config 访问 Core URL: {global_config.core_connection_url}"
-        )
+        logger.info(f"Napcat 心跳间隔: {cfg_instance.napcat_heartbeat_interval_seconds} 秒")
+        logger.info(f"通过 global_config 访问 Core URL: {global_config.core_connection_url}")
 
     except FileNotFoundError as e_fnf:
         logger.error(f"测试失败：配置文件操作问题 - {e_fnf}")
