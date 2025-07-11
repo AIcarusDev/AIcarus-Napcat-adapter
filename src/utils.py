@@ -430,16 +430,16 @@ async def get_image_base64_from_url(url: str, timeout: int = 10) -> str | None:
     ssl_context = ssl.create_default_context()
     ssl_context.set_ciphers("DEFAULT@SECLEVEL=1")
     try:
-        async with (
-            aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session,
-            session.get(url, timeout=timeout) as response,
-        ):
-            if response.status == 200:
-                image_bytes = await response.read()
-                return base64.b64encode(image_bytes).decode("utf-8")
-            else:
-                logger.error(f"下载图片失败 (HTTP {response.status}): {url}")
-                return None
+        async with aiohttp.ClientSession(  # noqa: SIM117
+            connector=aiohttp.TCPConnector(ssl=ssl_context)
+        ) as session:
+            async with session.get(url, timeout=timeout) as response:
+                if response.status == 200:
+                    image_bytes = await response.read()
+                    return base64.b64encode(image_bytes).decode("utf-8")
+                else:
+                    logger.error(f"下载图片失败 (HTTP {response.status}): {url}")
+                    return None
     except Exception as e:
         logger.error(f"下载或处理图片时发生错误 (URL: {url}): {e}", exc_info=True)
         return None
