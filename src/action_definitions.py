@@ -121,12 +121,86 @@ class SendForwardMessageHandler(BaseComplexActionHandler):
             return False, err_msg, {}
 
 
+class GetBotProfileHandler(BaseComplexActionHandler):
+    """处理获取机器人自身完整档案的特殊逻辑。"""
+
+    @staticmethod
+    async def execute(
+        params: dict[str, Any], event: Event, send_handler: "SendHandlerAicarus"
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """
+        执行获取机器人档案的逻辑。
+        这个动作现在会返回一个更完整的报告，包括：
+        - 机器人自己的 user_id 和 nickname
+        - 它所在的平台 platform
+        - 它加入的所有群聊的列表，以及它在每个群的群名片等信息
+        """
+        print("正在执行复杂的 get_bot_profile 动作，将返回完整档案...")
+        connection = send_handler.server_connection
+        if not connection:
+            return False, "适配器未连接到Napcat，无法获取档案。", {}
+
+        # 1. 获取机器人自身基础信息
+        self_info = await utils.napcat_get_self_info(connection)
+        if not self_info or not self_info.get("user_id"):
+            return False, "无法获取机器人自身的基础信息。", {}
+
+        bot_id = str(self_info["user_id"])
+        bot_nickname = self_info.get("nickname", "未知昵称")
+
+        # 2. 获取机器人所在的群列表
+        group_list = await utils.napcat_get_list(connection, list_type="group")
+        if group_list is None: # get_list 失败返回 None
+            print("无法获取群列表，档案将不包含群聊信息。")
+            group_list = []
+
+        # 3. 遍历群列表，获取机器人在每个群的详细信息（群名片、角色等）
+        groups_details = {}
+        for group in group_list:
+            group_id = str(group.get("group_id"))
+            if not group_id:
+                continue
+
+            # 获取机器人在这个群的成员信息
+            member_info = await utils.napcat_get_member_info(connection, group_id=group_id, user_id=bot_id)
+            if member_info:
+                groups_details[group_id] = {
+                    "group_id": group_id,
+                    "group_name": member_info.get("group_name") or group.get("group_name"), # 优先用成员信息的
+                    "card": member_info.get("card", ""),
+                    "role": member_info.get("role", "member"),
+                    "title": member_info.get("title", ""),
+                }
+            else:
+                groups_details[group_id] = {
+                    "group_id": group_id,
+                    "group_name": group.get("group_name", "未知群名"),
+                    "card": "",
+                    "role": "member",
+                    "title": "",
+                }
+
+        # 4. 组装最终的、丰满的报告
+        # 从 event 对象里拿到 platform_id，这是最可靠的来源
+        platform_id = event.get_platform()
+
+        full_profile_report = {
+            "user_id": bot_id,
+            "nickname": bot_nickname,
+            "platform": platform_id,
+            "groups": groups_details,
+        }
+
+        print(f"机器人完整档案已生成，包含 {len(groups_details)} 个群聊信息。")
+        return True, "机器人完整档案获取成功。", full_profile_report
+
 # 以后有其他复杂动作，就在这里加新的 Handler 类
 # ...
 
 # 最终的复杂动作处理器名录
 COMPLEX_ACTION_HANDLERS: dict[str, BaseComplexActionHandler] = {
     "send_forward_message": SendForwardMessageHandler,
+    "get_bot_profile": GetBotProfileHandler,
 }
 
 
@@ -174,10 +248,6 @@ ACTION_MAPPING: dict[str, ActionMappingType] = {
         ["flag", "sub_type", "approve"],
     ),
     # --- 信息获取 ---
-    "get_bot_profile": (
-        utils.napcat_get_self_info,
-        [],
-    ),  # get_bot_profile 现在简化为获取自身信息
     "get_group_info": (utils.napcat_get_group_info, ["group_id"]),
     "get_member_info": (utils.napcat_get_member_info, ["group_id", "user_id"]),
     "get_stranger_info": (utils.napcat_get_stranger_info, ["user_id"]),
