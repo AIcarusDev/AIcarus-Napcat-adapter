@@ -122,14 +122,14 @@ class SendForwardMessageHandler(BaseComplexActionHandler):
 
 
 class GetBotProfileHandler(BaseComplexActionHandler):
-    """处理获取机器人自身完整档案的特殊逻辑。"""
+    """处理获取机器人自身完整档案的特殊逻辑."""
 
     @staticmethod
     async def execute(
         params: dict[str, Any], event: Event, send_handler: "SendHandlerAicarus"
     ) -> tuple[bool, str, dict[str, Any]]:
-        """
-        执行获取机器人档案的逻辑。
+        """执行获取机器人档案的逻辑.
+
         这个动作现在会返回一个更完整的报告，包括：
         - 机器人自己的 user_id 和 nickname
         - 它所在的平台 platform
@@ -150,7 +150,7 @@ class GetBotProfileHandler(BaseComplexActionHandler):
 
         # 2. 获取机器人所在的群列表
         group_list = await utils.napcat_get_list(connection, list_type="group")
-        if group_list is None: # get_list 失败返回 None
+        if group_list is None:  # get_list 失败返回 None
             print("无法获取群列表，档案将不包含群聊信息。")
             group_list = []
 
@@ -162,11 +162,14 @@ class GetBotProfileHandler(BaseComplexActionHandler):
                 continue
 
             # 获取机器人在这个群的成员信息
-            member_info = await utils.napcat_get_member_info(connection, group_id=group_id, user_id=bot_id)
+            member_info = await utils.napcat_get_member_info(
+                connection, group_id=group_id, user_id=bot_id
+            )
             if member_info:
                 groups_details[group_id] = {
                     "group_id": group_id,
-                    "group_name": member_info.get("group_name") or group.get("group_name"), # 优先用成员信息的
+                    "group_name": member_info.get("group_name")
+                    or group.get("group_name"),  # 优先用成员信息的
                     "card": member_info.get("card", ""),
                     "role": member_info.get("role", "member"),
                     "title": member_info.get("title", ""),
@@ -193,6 +196,7 @@ class GetBotProfileHandler(BaseComplexActionHandler):
 
         print(f"机器人完整档案已生成，包含 {len(groups_details)} 个群聊信息。")
         return True, "机器人完整档案获取成功。", full_profile_report
+
 
 # 以后有其他复杂动作，就在这里加新的 Handler 类
 # ...

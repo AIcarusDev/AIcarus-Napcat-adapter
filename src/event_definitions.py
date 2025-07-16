@@ -473,9 +473,7 @@ class MetaEventFactory(BaseEventFactory):
         elif event_type_raw == MetaEventType.heartbeat:
             # 心跳事件，我们自己消化，不发给Core
             status_obj = napcat_event.get("status", {})
-            if status_obj.get("online", False) and status_obj.get(
-                "good", False
-            ):
+            if status_obj.get("online", False) and status_obj.get("good", False):
                 recv_handler.last_heart_beat = time.time()
                 if napcat_event.get("interval"):
                     recv_handler.interval = napcat_event.get("interval") / 1000.0
